@@ -1,0 +1,18 @@
+[toolchain]
+anchor_version = "1.2.0"
+
+[features]
+resolution = true
+skip-lint = true
+
+[programs.devnet]
+owncurve = "GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh"
+
+[programs.localnet]
+owncurve = "7e9AuP2h628b659tG771bUpMbWFS68Zxxx46cThisytb"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/id.json"
+
+[hooks]

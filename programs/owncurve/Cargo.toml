@@ -1,0 +1,20 @@
+[package]
+name = "owncurve"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "owncurve"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+idl-build = ["anchor-lang/idl-build", "anchor-spl/idl-build", "dynamic-bonding-curve/idl-build"]
+
+[dependencies]
+anchor-lang = { version = "1.2.0", features = ["init-if-needed"] }
+anchor-spl = "1.2.0"
+dynamic-bonding-curve = { git = "https://github.com/MeteoraAg/dynamic-bonding-curve", rev = "f552f20aa3c1c7631427c3827aeea7c58b902813", features = ["cpi"] }
