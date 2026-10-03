@@ -46,4 +46,10 @@ pub enum OwnCurveError {
     ZeroAmount,
     #[msg("Math overflow")]
     MathOverflow,
+    #[msg("A tranche request needs a link to the delivered work (1-160 characters)")]
+    InvalidEvidence,
+    #[msg("Floor buyback exceeds the floor reserve plus collected fees")]
+    FloorBudgetExceeded,
+    #[msg("Nothing to buy back: the treasury or the circulating supply is empty")]
+    NothingToDefend,
 }

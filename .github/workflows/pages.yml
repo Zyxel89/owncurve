@@ -1,0 +1,41 @@
+# Public demo: builds the web app against Solana devnet and publishes it on GitHub Pages.
+# Settings → Pages → Source: "GitHub Actions". Optional repo variable VITE_RPC_URL
+# (a public devnet RPC with CORS); never put a paid RPC key here, the build is public.
+name: pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx vite build --config app/vite.config.ts
+        env:
+          VITE_CLUSTER: devnet
+          VITE_RPC_URL: ${{ vars.VITE_RPC_URL || 'https://api.devnet.solana.com' }}
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/dist
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

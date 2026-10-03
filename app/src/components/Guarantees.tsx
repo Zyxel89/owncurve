@@ -31,6 +31,14 @@ export function Guarantees({ d }: { d: RaiseDetail }) {
         d.raise.rejectQuorumBps / 100
       }% of the supply can stop it.`,
     },
+    {
+      ok: d.raise.floorReserveBps > 0,
+      text: `${d.raise.floorReserveBps / 100}% of the treasury plus every fee it earns can only buy the token back below its backing and burn it.`,
+    },
+    {
+      ok: true,
+      text: "Every tranche request carries a public link to the delivered work and its SHA-256 on-chain.",
+    },
   ];
   const link = explorerAddress(treasury);
   return (

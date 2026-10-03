@@ -1,0 +1,1752 @@
+{
+  "address": "GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh",
+  "metadata": {
+    "name": "owncurve",
+    "version": "0.1.0",
+    "spec": "0.1.0"
+  },
+  "instructions": [
+    {
+      "name": "bind_pool",
+      "docs": [
+        "Permissionless: reads the live DBC config + pool and proves the launch is",
+        "treasury-safe before anyone should buy."
+      ],
+      "discriminator": [
+        42,
+        253,
+        183,
+        246,
+        58,
+        106,
+        92,
+        243
+      ],
+      "accounts": [
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "dbc_config"
+        },
+        {
+          "name": "dbc_pool"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "claim_lp_fees",
+      "docs": [
+        "Permissionless: after migration, claims the LP fees of the DAMM v2 position that DBC",
+        "minted to the partner (= the treasury). The treasury earns trading fees forever."
+      ],
+      "discriminator": [
+        72,
+        86,
+        212,
+        142,
+        60,
+        38,
+        74,
+        75
+      ],
+      "accounts": [
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_base",
+          "writable": true
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "damm_pool_authority"
+        },
+        {
+          "name": "damm_pool"
+        },
+        {
+          "name": "position",
+          "writable": true
+        },
+        {
+          "name": "damm_base_vault",
+          "writable": true
+        },
+        {
+          "name": "damm_quote_vault",
+          "writable": true
+        },
+        {
+          "name": "position_nft_account"
+        },
+        {
+          "name": "damm_event_authority"
+        },
+        {
+          "name": "damm_program",
+          "address": "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG"
+        },
+        {
+          "name": "base_token_program"
+        },
+        {
+          "name": "quote_token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "collect_surplus",
+      "docs": [
+        "Permissionless: if the last buy overshot the threshold, pulls the partner surplus."
+      ],
+      "discriminator": [
+        237,
+        94,
+        177,
+        157,
+        242,
+        154,
+        7,
+        201
+      ],
+      "accounts": [
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "dbc_pool_authority"
+        },
+        {
+          "name": "dbc_config"
+        },
+        {
+          "name": "dbc_pool",
+          "writable": true
+        },
+        {
+          "name": "dbc_quote_vault",
+          "writable": true
+        },
+        {
+          "name": "dbc_event_authority"
+        },
+        {
+          "name": "dbc_program",
+          "address": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"
+        },
+        {
+          "name": "quote_token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "collect_trading_fees",
+      "docs": [
+        "Permissionless: pulls the partner share of DBC trading fees into the treasury."
+      ],
+      "discriminator": [
+        189,
+        38,
+        205,
+        234,
+        81,
+        77,
+        25,
+        1
+      ],
+      "accounts": [
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_base",
+          "writable": true
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "dbc_pool_authority"
+        },
+        {
+          "name": "dbc_config"
+        },
+        {
+          "name": "dbc_pool",
+          "writable": true
+        },
+        {
+          "name": "dbc_base_vault",
+          "writable": true
+        },
+        {
+          "name": "dbc_quote_vault",
+          "writable": true
+        },
+        {
+          "name": "dbc_event_authority"
+        },
+        {
+          "name": "dbc_program",
+          "address": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"
+        },
+        {
+          "name": "base_token_program"
+        },
+        {
+          "name": "quote_token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "defend_floor",
+      "docs": [
+        "Permissionless: when the token trades on DAMM v2 below what the treasury holds per",
+        "token, spend floor reserve + collected fees buying it back, and burn what is bought.",
+        "The program sets the minimum output itself, so the treasury can only ever pay a price at",
+        "or below backing: every buyback raises the backing of the remaining tokens."
+      ],
+      "discriminator": [
+        137,
+        58,
+        175,
+        193,
+        29,
+        36,
+        183,
+        9
+      ],
+      "accounts": [
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_base",
+          "writable": true
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "base_mint",
+          "writable": true
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "damm_pool_authority"
+        },
+        {
+          "name": "damm_pool",
+          "docs": [
+            "minimum output protects the treasury whichever pool is passed."
+          ],
+          "writable": true
+        },
+        {
+          "name": "damm_base_vault",
+          "writable": true
+        },
+        {
+          "name": "damm_quote_vault",
+          "writable": true
+        },
+        {
+          "name": "damm_event_authority"
+        },
+        {
+          "name": "damm_program",
+          "address": "cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG"
+        },
+        {
+          "name": "base_token_program"
+        },
+        {
+          "name": "quote_token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount_in",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "finalize",
+      "docs": [
+        "Permissionless after the window: releases the tranche, or flips the raise into",
+        "liquidation if the reject quorum was met."
+      ],
+      "discriminator": [
+        171,
+        61,
+        218,
+        56,
+        127,
+        115,
+        12,
+        217
+      ],
+      "accounts": [
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "treasury_base"
+        },
+        {
+          "name": "team_quote",
+          "writable": true
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "harvest",
+      "docs": [
+        "Permissionless: after graduation, pulls the partner migration fee into the",
+        "treasury by CPI into DBC, signed by the treasury PDA (the config's fee_claimer)."
+      ],
+      "discriminator": [
+        228,
+        241,
+        31,
+        182,
+        53,
+        169,
+        59,
+        199
+      ],
+      "accounts": [
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "dbc_pool_authority"
+        },
+        {
+          "name": "dbc_config"
+        },
+        {
+          "name": "dbc_pool",
+          "writable": true
+        },
+        {
+          "name": "dbc_quote_vault",
+          "writable": true
+        },
+        {
+          "name": "dbc_event_authority"
+        },
+        {
+          "name": "dbc_program",
+          "address": "dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN"
+        },
+        {
+          "name": "quote_token_program"
+        }
+      ],
+      "args": []
+    },
+    {
+      "name": "init_raise",
+      "docs": [
+        "Team registers a raise for a DBC config it is about to create (or has created)."
+      ],
+      "discriminator": [
+        39,
+        49,
+        161,
+        178,
+        117,
+        165,
+        156,
+        138
+      ],
+      "accounts": [
+        {
+          "name": "team",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "dbc_config"
+        },
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dbc_config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "dbc_config"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "InitRaiseParams"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "propose_release",
+      "docs": [
+        "Team requests the next milestone tranche, committing to evidence of the delivered work",
+        "(a link plus a hash); opens the challenge window."
+      ],
+      "discriminator": [
+        156,
+        43,
+        186,
+        24,
+        116,
+        44,
+        17,
+        71
+      ],
+      "accounts": [
+        {
+          "name": "team",
+          "signer": true
+        },
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "evidence_uri",
+          "type": "string"
+        },
+        {
+          "name": "evidence_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "redeem",
+      "docs": [
+        "In liquidation: burn base tokens, receive a pro-rata share of the treasury."
+      ],
+      "discriminator": [
+        184,
+        12,
+        86,
+        149,
+        70,
+        196,
+        97,
+        225
+      ],
+      "accounts": [
+        {
+          "name": "holder",
+          "signer": true
+        },
+        {
+          "name": "raise",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "treasury_base"
+        },
+        {
+          "name": "holder_base",
+          "writable": true
+        },
+        {
+          "name": "holder_quote",
+          "writable": true
+        },
+        {
+          "name": "base_mint",
+          "writable": true
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "base_token_program"
+        },
+        {
+          "name": "quote_token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "reject",
+      "docs": [
+        "Holder locks base tokens as a \"reject\" vote on the active proposal."
+      ],
+      "discriminator": [
+        135,
+        7,
+        63,
+        85,
+        131,
+        114,
+        111,
+        224
+      ],
+      "accounts": [
+        {
+          "name": "voter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              },
+              {
+                "kind": "account",
+                "path": "voter"
+              },
+              {
+                "kind": "account",
+                "path": "raise.proposal_nonce",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow_base",
+          "writable": true
+        },
+        {
+          "name": "voter_base",
+          "writable": true
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "base_token_program"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "withdraw_vote",
+      "docs": [
+        "Returns a voter's locked tokens once their proposal has been finalized."
+      ],
+      "discriminator": [
+        243,
+        255,
+        70,
+        200,
+        3,
+        242,
+        103,
+        137
+      ],
+      "accounts": [
+        {
+          "name": "voter",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "vote"
+          ]
+        },
+        {
+          "name": "raise",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vote",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              },
+              {
+                "kind": "account",
+                "path": "voter"
+              },
+              {
+                "kind": "account",
+                "path": "vote.proposal_nonce",
+                "account": "VoteRecord"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "escrow_base",
+          "writable": true
+        },
+        {
+          "name": "voter_base",
+          "writable": true
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "base_token_program"
+        }
+      ],
+      "args": []
+    }
+  ],
+  "accounts": [
+    {
+      "name": "Raise",
+      "discriminator": [
+        253,
+        96,
+        15,
+        240,
+        65,
+        242,
+        192,
+        103
+      ]
+    },
+    {
+      "name": "VoteRecord",
+      "discriminator": [
+        112,
+        9,
+        123,
+        165,
+        234,
+        9,
+        157,
+        167
+      ]
+    }
+  ],
+  "events": [
+    {
+      "name": "FloorDefended",
+      "discriminator": [
+        88,
+        73,
+        113,
+        118,
+        33,
+        130,
+        219,
+        47
+      ]
+    },
+    {
+      "name": "TrancheRequested",
+      "discriminator": [
+        233,
+        30,
+        146,
+        249,
+        163,
+        224,
+        213,
+        38
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "InvalidMilestones",
+      "msg": "Invalid milestone configuration (1-5 milestones, tranches must sum to 10000 bps)"
+    },
+    {
+      "code": 6001,
+      "name": "InvalidGovernance",
+      "msg": "Invalid governance parameters"
+    },
+    {
+      "code": 6002,
+      "name": "InvalidState",
+      "msg": "Raise is not in the required state for this action"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidDbcAccount",
+      "msg": "DBC account is not owned by the DBC program or has the wrong type"
+    },
+    {
+      "code": 6004,
+      "name": "PoolConfigMismatch",
+      "msg": "DBC pool does not belong to this raise's config"
+    },
+    {
+      "code": 6005,
+      "name": "FeeClaimerNotTreasury",
+      "msg": "DBC config fee_claimer must be the raise treasury PDA"
+    },
+    {
+      "code": 6006,
+      "name": "LeftoverReceiverNotTreasury",
+      "msg": "DBC config leftover_receiver must be the raise treasury PDA"
+    },
+    {
+      "code": 6007,
+      "name": "CreatorMigrationFeeNotZero",
+      "msg": "DBC config must not share the migration fee with the creator"
+    },
+    {
+      "code": 6008,
+      "name": "TreasuryShareTooLow",
+      "msg": "DBC config migration fee is below the raise's minimum treasury share"
+    },
+    {
+      "code": 6009,
+      "name": "PoolCreatorNotTeam",
+      "msg": "DBC pool creator must be the raise team"
+    },
+    {
+      "code": 6010,
+      "name": "CreatorLpNotLocked",
+      "msg": "Creator LP must be 100% permanently locked (no unlocked or vesting LP)"
+    },
+    {
+      "code": 6011,
+      "name": "CreatorMintAuthority",
+      "msg": "DBC config must not give the mint authority to the creator"
+    },
+    {
+      "code": 6012,
+      "name": "CurveNotComplete",
+      "msg": "Bonding curve has not completed yet"
+    },
+    {
+      "code": 6013,
+      "name": "NotTeam",
+      "msg": "Only the team can do this"
+    },
+    {
+      "code": 6014,
+      "name": "MilestoneOutOfOrder",
+      "msg": "Milestones must be proposed in order"
+    },
+    {
+      "code": 6015,
+      "name": "ProposalActive",
+      "msg": "A proposal is already active"
+    },
+    {
+      "code": 6016,
+      "name": "NoActiveProposal",
+      "msg": "No active proposal"
+    },
+    {
+      "code": 6017,
+      "name": "ChallengeWindowOpen",
+      "msg": "Challenge window is still open"
+    },
+    {
+      "code": 6018,
+      "name": "ChallengeWindowClosed",
+      "msg": "Challenge window has closed"
+    },
+    {
+      "code": 6019,
+      "name": "VoteStillLocked",
+      "msg": "Vote belongs to a proposal that is still active"
+    },
+    {
+      "code": 6020,
+      "name": "ZeroAmount",
+      "msg": "Amount must be greater than zero"
+    },
+    {
+      "code": 6021,
+      "name": "MathOverflow",
+      "msg": "Math overflow"
+    },
+    {
+      "code": 6022,
+      "name": "InvalidEvidence",
+      "msg": "A tranche request needs a link to the delivered work (1-160 characters)"
+    },
+    {
+      "code": 6023,
+      "name": "FloorBudgetExceeded",
+      "msg": "Floor buyback exceeds the floor reserve plus collected fees"
+    },
+    {
+      "code": 6024,
+      "name": "NothingToDefend",
+      "msg": "Nothing to buy back: the treasury or the circulating supply is empty"
+    }
+  ],
+  "types": [
+    {
+      "name": "FloorDefended",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raise",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_spent",
+            "type": "u64"
+          },
+          {
+            "name": "tokens_bought_and_burned",
+            "type": "u64"
+          },
+          {
+            "name": "backing_per_token_before",
+            "type": "u128"
+          },
+          {
+            "name": "backing_per_token_after",
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "InitRaiseParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "min_treasury_pct",
+            "type": "u8"
+          },
+          {
+            "name": "tranche_bps",
+            "type": {
+              "vec": "u16"
+            }
+          },
+          {
+            "name": "challenge_window",
+            "type": "i64"
+          },
+          {
+            "name": "reject_quorum_bps",
+            "type": "u16"
+          },
+          {
+            "name": "floor_reserve_bps",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Milestone",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "tranche_bps",
+            "docs": [
+              "Share of the payable treasury (funded minus floor reserve) released at this milestone, in bps."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "MilestoneStatus"
+              }
+            }
+          },
+          {
+            "name": "evidence_hash",
+            "docs": [
+              "SHA-256 the team committed to when requesting this tranche (e.g. a release or commit hash)."
+            ],
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MilestoneStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Locked"
+          },
+          {
+            "name": "Proposed"
+          },
+          {
+            "name": "Released"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Raise",
+      "docs": [
+        "One raise = one DBC config = one DBC pool.",
+        "The treasury PDA (seeds: [\"treasury\", dbc_config]) is set as the DBC config's",
+        "`fee_claimer` and `leftover_receiver`, so every partner-side flow of the launch",
+        "(migration fee, partner trading fees, surplus, leftover, and — on transfer-hook",
+        "configs — the mint authority) can only be moved by this program."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "team",
+            "type": "pubkey"
+          },
+          {
+            "name": "dbc_config",
+            "type": "pubkey"
+          },
+          {
+            "name": "dbc_pool",
+            "type": "pubkey"
+          },
+          {
+            "name": "base_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "quote_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "state",
+            "type": {
+              "defined": {
+                "name": "RaiseState"
+              }
+            }
+          },
+          {
+            "name": "min_treasury_pct",
+            "docs": [
+              "Minimum `migration_fee_percentage` the DBC config must route to the treasury."
+            ],
+            "type": "u8"
+          },
+          {
+            "name": "funded_amount",
+            "docs": [
+              "Quote amount harvested into the treasury at graduation."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "released_amount",
+            "docs": [
+              "Quote amount already released to the team."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "fees_collected",
+            "docs": [
+              "Extra quote collected after funding: DBC partner trading fees, partner surplus and",
+              "DAMM v2 LP fees of the treasury-owned position. Never released to the team: it backs NAV."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "floor_reserve_bps",
+            "docs": [
+              "Share of `funded_amount` kept forever as a floor reserve (bps). Tranches split the rest."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "floor_spent",
+            "docs": [
+              "Quote spent by `defend_floor` buying tokens below backing."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "tokens_burned",
+            "docs": [
+              "Base tokens bought back by `defend_floor` and burned."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "milestones",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Milestone"
+                  }
+                },
+                5
+              ]
+            }
+          },
+          {
+            "name": "milestone_count",
+            "type": "u8"
+          },
+          {
+            "name": "challenge_window",
+            "docs": [
+              "Seconds holders have to reject a proposed tranche."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "reject_quorum_bps",
+            "docs": [
+              "Share of base-token supply (bps) that must lock \"reject\" votes to block a tranche."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "proposal_nonce",
+            "docs": [
+              "Active proposal (valid while a milestone is `Proposed`)."
+            ],
+            "type": "u32"
+          },
+          {
+            "name": "proposal_milestone",
+            "type": "u8"
+          },
+          {
+            "name": "proposal_ends_at",
+            "type": "i64"
+          },
+          {
+            "name": "proposal_reject_weight",
+            "type": "u64"
+          },
+          {
+            "name": "proposal_evidence_uri",
+            "docs": [
+              "Link to the delivered work for the active (or last) tranche request."
+            ],
+            "type": "string"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          },
+          {
+            "name": "treasury_bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "RaiseState",
+      "docs": [
+        "Lifecycle of a raise."
+      ],
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Pending"
+          },
+          {
+            "name": "Bonding"
+          },
+          {
+            "name": "Funded"
+          },
+          {
+            "name": "Liquidating"
+          },
+          {
+            "name": "Completed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TrancheRequested",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raise",
+            "type": "pubkey"
+          },
+          {
+            "name": "milestone",
+            "type": "u8"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "evidence_uri",
+            "type": "string"
+          },
+          {
+            "name": "evidence_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "objections_close_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoteRecord",
+      "docs": [
+        "A holder's locked \"reject\" vote on one proposal."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raise",
+            "type": "pubkey"
+          },
+          {
+            "name": "voter",
+            "type": "pubkey"
+          },
+          {
+            "name": "proposal_nonce",
+            "type": "u32"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -2,7 +2,8 @@
 // programas reales. Dos personas con wallets de prueba: el equipo y un holder.
 //
 //  equipo lanza un raise → holder compra → equipo completa la curva → tesorería financiada →
-//  equipo pide el tramo 1 → holder objeta con quórum → se cierra la ventana → liquidación →
+//  graduación a DAMM v2 → venta de pánico → cualquiera dispara la defensa del piso →
+//  equipo pide el tramo 1 con evidencia → holder la ve y objeta con quórum → se cierra la ventana → liquidación →
 //  holder desbloquea sus tokens y los redime por SOL
 //
 // Ejecutar: npx tsx tests/e2e/ui.e2e.ts   (SHOTS=dir guarda capturas)
@@ -41,7 +42,8 @@ async function main() {
     const { Keypair } = await import("@solana/web3.js");
     const pk = Keypair.fromSecretKey(Uint8Array.from(secret)).publicKey;
     rpc.svm.airdrop(pk, 5_000_000_000n);
-    return { page, pk };
+    const kp = Keypair.fromSecretKey(Uint8Array.from(secret));
+    return { page, pk, kp };
   };
   const shot = async (page: Page, name: string) => {
     if (!SHOTS) return;
@@ -89,16 +91,32 @@ async function main() {
     step("curva completa y tesorería financiada desde la interfaz");
     await shot(team.page, "tesoreria-financiada");
 
-    // 3. El equipo pide el tramo 1; el holder objeta
+    // 3. Graduación a DAMM v2, venta de pánico y defensa del piso desde la interfaz
+    await team.page.getByRole("button", { name: "Graduate the pool to Meteora DAMM v2" }).click();
+    await ok(team.page, "The token now trades on DAMM v2.");
+    await team.page.getByText("Price floor.").waitFor({ timeout: 30_000 });
+    await panicSell(rpc.url, team.kp, raiseUrl.split("/").pop()!);
+    await team.page.reload();
+    await team.page.getByRole("button", { name: /Buy back below backing/ }).click();
+    await ok(team.page, "Floor defended");
+    await team.page.getByText(/tokens burned so far/).waitFor({ timeout: 30_000 });
+    step("graduado a DAMM v2; tras una venta de pánico la tesorería recompró bajo el respaldo y quemó");
+    await shot(team.page, "piso-defendido");
+
+    // 4. El equipo pide el tramo 1 con evidencia; el holder la ve y objeta
+    const evidenceUrl = "https://github.com/lighthouse/app/releases/tag/v0.1";
+    await team.page.getByLabel("Link to the delivered work").fill(evidenceUrl);
+    await team.page.getByLabel(/What you shipped/).fill("Beta live with 1,200 users");
     await team.page.getByRole("button", { name: /Request tranche 1/ }).click();
     await ok(team.page, "Tranche requested.");
     await holder.page.reload();
+    await holder.page.getByRole("link", { name: evidenceUrl }).waitFor({ timeout: 30_000 });
     await holder.page.getByRole("button", { name: /Object with my/ }).click();
     await ok(holder.page, "Objection recorded.");
-    step("tramo 1 pedido y objetado por el holder");
+    step("tramo 1 pedido con evidencia (enlace + sha256 en cadena) y objetado por el holder");
     await shot(holder.page, "objecion");
 
-    // 4. Pasa la ventana: se liquida
+    // 5. Pasa la ventana: se liquida
     rpc.svm && (await fetch(rpc.url, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "owncurve_warp", params: [61] }) }));
     await team.page.reload();
     await team.page.getByRole("button", { name: "Settle tranche 1" }).click();
@@ -107,7 +125,7 @@ async function main() {
     step("ventana cerrada: el raise pasó a liquidación");
     await shot(team.page, "liquidacion");
 
-    // 5. El holder desbloquea y redime
+    // 6. El holder desbloquea y redime
     await holder.page.reload();
     await holder.page.getByRole("button", { name: "Unlock my voted tokens" }).click();
     await ok(holder.page, "Your tokens are back");
@@ -138,11 +156,47 @@ async function main() {
 
     if (errors.length) throw new Error("Errores de JavaScript en la página:\n" + errors.join("\n"));
     console.log("\n  E2E OK: el ciclo completo funciona desde la interfaz.");
+  } catch (e) {
+    if (SHOTS) {
+      for (const [i, pg] of browser.contexts().flatMap((c) => c.pages()).entries())
+        await pg.screenshot({ path: `${SHOTS}/fallo-${i}.png`, fullPage: true }).catch(() => {});
+    }
+    throw e;
   } finally {
     await browser.close();
     await vite.close();
     rpc.server.close();
   }
+}
+
+/** Venta de pánico directa contra el RPC (no hay botón de vender en la app). */
+async function panicSell(rpcUrl: string, team: import("@solana/web3.js").Keypair, config: string) {
+  const { Connection, PublicKey, Transaction } = await import("@solana/web3.js");
+  const { loadIdl } = await import("../../scripts/lib/net");
+  const { OwnCurve, Raise } = await import("../../scripts/lib/owncurve");
+  const conn = new Connection(rpcUrl, "confirmed");
+  const net: any = {
+    cluster: "local",
+    conn,
+    payer: team,
+    explorer: (s: string) => s,
+    advanceTime: async () => {},
+    fund: async () => {},
+    send: async (_l: string, ixs: any[], signers: any[]) => {
+      const tx = new Transaction().add(...ixs);
+      tx.feePayer = team.publicKey;
+      tx.recentBlockhash = (await conn.getLatestBlockhash()).blockhash;
+      tx.sign(team, ...signers.filter((k) => !k.publicKey.equals(team.publicKey)));
+      return conn.sendRawTransaction(tx.serialize());
+    },
+  };
+  const oc = new OwnCurve(net, loadIdl());
+  const raise = await (oc.program.account as any).raise.fetch(
+    PublicKey.findProgramAddressSync([Buffer.from("raise"), new PublicKey(config).toBuffer()], oc.programId)[0],
+  );
+  const r = new Raise(oc, new PublicKey(config), new PublicKey(raise.baseMint));
+  const mine = await oc.tokenBalance(r.baseAta(team.publicKey));
+  await oc.dammSell(r, mine.muln(6).divn(10));
 }
 
 main()

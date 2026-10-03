@@ -1,4 +1,5 @@
-target/
+target/*
+!target/idl/
 logs/
 node_modules/
 .anchor/

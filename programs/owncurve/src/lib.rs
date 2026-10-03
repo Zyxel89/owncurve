@@ -27,6 +27,26 @@ pub struct InitRaiseParams {
     pub tranche_bps: Vec<u16>,
     pub challenge_window: i64,
     pub reject_quorum_bps: u16,
+    pub floor_reserve_bps: u16,
+}
+
+#[event]
+pub struct TrancheRequested {
+    pub raise: Pubkey,
+    pub milestone: u8,
+    pub amount: u64,
+    pub evidence_uri: String,
+    pub evidence_hash: [u8; 32],
+    pub objections_close_at: i64,
+}
+
+#[event]
+pub struct FloorDefended {
+    pub raise: Pubkey,
+    pub quote_spent: u64,
+    pub tokens_bought_and_burned: u64,
+    pub backing_per_token_before: u128, // quote base units per 1e9 base units, Q0
+    pub backing_per_token_after: u128,
 }
 
 #[program]
@@ -48,6 +68,7 @@ pub mod owncurve {
             params.reject_quorum_bps > 0 && params.reject_quorum_bps <= MAX_REJECT_QUORUM_BPS,
             OwnCurveError::InvalidGovernance
         );
+        require!(params.floor_reserve_bps <= MAX_FLOOR_RESERVE_BPS, OwnCurveError::InvalidGovernance);
 
         let raise = &mut ctx.accounts.raise;
         raise.team = ctx.accounts.team.key();
@@ -56,13 +77,14 @@ pub mod owncurve {
         raise.min_treasury_pct = params.min_treasury_pct;
         raise.milestone_count = n as u8;
         for (i, bps) in params.tranche_bps.iter().enumerate() {
-            raise.milestones[i] = Milestone { tranche_bps: *bps, status: MilestoneStatus::Locked };
+            raise.milestones[i] = Milestone { tranche_bps: *bps, status: MilestoneStatus::Locked, evidence_hash: [0; 32] };
         }
         for i in n..MAX_MILESTONES {
-            raise.milestones[i] = Milestone { tranche_bps: 0, status: MilestoneStatus::Released };
+            raise.milestones[i] = Milestone { tranche_bps: 0, status: MilestoneStatus::Released, evidence_hash: [0; 32] };
         }
         raise.challenge_window = params.challenge_window;
         raise.reject_quorum_bps = params.reject_quorum_bps;
+        raise.floor_reserve_bps = params.floor_reserve_bps;
         raise.bump = ctx.bumps.raise;
         raise.treasury_bump = ctx.bumps.treasury;
         Ok(())
@@ -261,8 +283,109 @@ pub mod owncurve {
         add_collected(&mut ctx.accounts.raise, &mut ctx.accounts.treasury_quote, before)
     }
 
-    /// Team proposes releasing the next milestone tranche; opens the challenge window.
-    pub fn propose_release(ctx: Context<TeamAction>) -> Result<()> {
+    /// Permissionless: when the token trades on DAMM v2 below what the treasury holds per
+    /// token, spend floor reserve + collected fees buying it back, and burn what is bought.
+    /// The program sets the minimum output itself, so the treasury can only ever pay a price at
+    /// or below backing: every buyback raises the backing of the remaining tokens.
+    pub fn defend_floor(ctx: Context<DefendFloor>, amount_in: u64) -> Result<()> {
+        let raise = &ctx.accounts.raise;
+        require!(
+            raise.state == RaiseState::Funded || raise.state == RaiseState::Completed,
+            OwnCurveError::InvalidState
+        );
+        require!(amount_in > 0, OwnCurveError::ZeroAmount);
+        let budget = floor_budget(raise)?;
+        require!(amount_in <= budget, OwnCurveError::FloorBudgetExceeded);
+
+        let treasury_quote_before = ctx.accounts.treasury_quote.amount;
+        let base_before = ctx.accounts.treasury_base.amount;
+        let circulating = circulating_supply(ctx.accounts.base_mint.supply, base_before);
+        require!(treasury_quote_before > 0 && circulating > 0, OwnCurveError::NothingToDefend);
+
+        // Tokens the treasury must receive at least: amount_in at exactly backing price, rounded up.
+        let min_out = ((amount_in as u128) * (circulating as u128))
+            .checked_add(treasury_quote_before as u128 - 1)
+            .ok_or(OwnCurveError::MathOverflow)?
+            / (treasury_quote_before as u128);
+        let min_out = u64::try_from(min_out).map_err(|_| error!(OwnCurveError::MathOverflow))?;
+
+        let config_key = raise.dbc_config;
+        let seeds: &[&[u8]] = &[TREASURY_SEED, config_key.as_ref(), &[raise.treasury_bump]];
+        let cpi_accounts = damm_v2::cpi::accounts::Swap {
+            pool_authority: ctx.accounts.damm_pool_authority.to_account_info(),
+            pool: ctx.accounts.damm_pool.to_account_info(),
+            input_token_account: ctx.accounts.treasury_quote.to_account_info(),
+            output_token_account: ctx.accounts.treasury_base.to_account_info(),
+            token_a_vault: ctx.accounts.damm_base_vault.to_account_info(),
+            token_b_vault: ctx.accounts.damm_quote_vault.to_account_info(),
+            token_a_mint: ctx.accounts.base_mint.to_account_info(),
+            token_b_mint: ctx.accounts.quote_mint.to_account_info(),
+            payer: ctx.accounts.treasury.to_account_info(),
+            token_a_program: ctx.accounts.base_token_program.to_account_info(),
+            token_b_program: ctx.accounts.quote_token_program.to_account_info(),
+            referral_token_account: None,
+            event_authority: ctx.accounts.damm_event_authority.to_account_info(),
+            program: ctx.accounts.damm_program.to_account_info(),
+        };
+        damm_v2::cpi::swap(
+            CpiContext::new_with_signer(ctx.accounts.damm_program.key(), cpi_accounts, &[seeds]),
+            damm_v2::types::SwapParameters { amount_in, minimum_amount_out: min_out },
+        )?;
+
+        ctx.accounts.treasury_base.reload()?;
+        ctx.accounts.treasury_quote.reload()?;
+        let bought = ctx
+            .accounts
+            .treasury_base
+            .amount
+            .checked_sub(base_before)
+            .ok_or(OwnCurveError::MathOverflow)?;
+        let spent = treasury_quote_before
+            .checked_sub(ctx.accounts.treasury_quote.amount)
+            .ok_or(OwnCurveError::MathOverflow)?;
+        require!(bought >= min_out, OwnCurveError::NothingToDefend);
+
+        token_interface::burn(
+            CpiContext::new_with_signer(
+                ctx.accounts.base_token_program.key(),
+                Burn {
+                    mint: ctx.accounts.base_mint.to_account_info(),
+                    from: ctx.accounts.treasury_base.to_account_info(),
+                    authority: ctx.accounts.treasury.to_account_info(),
+                },
+                &[seeds],
+            ),
+            bought,
+        )?;
+
+        let backing_before = backing_per_token(treasury_quote_before, circulating);
+        let backing_after = backing_per_token(ctx.accounts.treasury_quote.amount, circulating - bought);
+        let raise_key = ctx.accounts.raise.key();
+        let raise = &mut ctx.accounts.raise;
+        raise.floor_spent = raise.floor_spent.checked_add(spent).ok_or(OwnCurveError::MathOverflow)?;
+        raise.tokens_burned = raise.tokens_burned.checked_add(bought).ok_or(OwnCurveError::MathOverflow)?;
+        emit!(FloorDefended {
+            raise: raise_key,
+            quote_spent: spent,
+            tokens_bought_and_burned: bought,
+            backing_per_token_before: backing_before,
+            backing_per_token_after: backing_after,
+        });
+        Ok(())
+    }
+
+    /// Team requests the next milestone tranche, committing to evidence of the delivered work
+    /// (a link plus a hash); opens the challenge window.
+    pub fn propose_release(
+        ctx: Context<TeamAction>,
+        evidence_uri: String,
+        evidence_hash: [u8; 32],
+    ) -> Result<()> {
+        require!(
+            !evidence_uri.trim().is_empty() && evidence_uri.len() <= MAX_EVIDENCE_URI,
+            OwnCurveError::InvalidEvidence
+        );
+        let raise_key = ctx.accounts.raise.key();
         let raise = &mut ctx.accounts.raise;
         require!(raise.state == RaiseState::Funded, OwnCurveError::InvalidState);
         require!(
@@ -276,12 +399,22 @@ pub mod owncurve {
             .ok_or(OwnCurveError::MilestoneOutOfOrder)?;
 
         raise.milestones[next].status = MilestoneStatus::Proposed;
+        raise.milestones[next].evidence_hash = evidence_hash;
         raise.proposal_milestone = next as u8;
         raise.proposal_reject_weight = 0;
+        raise.proposal_evidence_uri = evidence_uri.clone();
         raise.proposal_ends_at = Clock::get()?
             .unix_timestamp
             .checked_add(raise.challenge_window)
             .ok_or(OwnCurveError::MathOverflow)?;
+        emit!(TrancheRequested {
+            raise: raise_key,
+            milestone: next as u8,
+            amount: tranche_amount(raise, next),
+            evidence_uri,
+            evidence_hash,
+            objections_close_at: raise.proposal_ends_at,
+        });
         Ok(())
     }
 
@@ -361,12 +494,7 @@ pub mod owncurve {
         }
 
         let is_last = (idx + 1) as u8 == raise.milestone_count;
-        let tranche = if is_last {
-            raise.funded_amount.saturating_sub(raise.released_amount)
-        } else {
-            ((raise.funded_amount as u128) * (raise.milestones[idx].tranche_bps as u128)
-                / (BPS as u128)) as u64
-        };
+        let tranche = tranche_amount(raise, idx);
 
         let config_key = raise.dbc_config;
         let seeds: &[&[u8]] = &[TREASURY_SEED, config_key.as_ref(), &[raise.treasury_bump]];
@@ -469,6 +597,39 @@ pub mod owncurve {
         )?;
         Ok(())
     }
+}
+
+/// Quote payable to the team for milestone `idx`: tranches split `funded − floor reserve`;
+/// the last one takes the rounding remainder so the payable amount is paid out exactly.
+fn tranche_amount(raise: &Raise, idx: usize) -> u64 {
+    let payable = payable_amount(raise);
+    if (idx + 1) as u8 == raise.milestone_count {
+        payable.saturating_sub(raise.released_amount)
+    } else {
+        ((payable as u128) * (raise.milestones[idx].tranche_bps as u128) / (BPS as u128)) as u64
+    }
+}
+
+fn payable_amount(raise: &Raise) -> u64 {
+    let reserve = (raise.funded_amount as u128) * (raise.floor_reserve_bps as u128) / (BPS as u128);
+    raise.funded_amount.saturating_sub(reserve as u64)
+}
+
+/// What `defend_floor` may still spend: the floor reserve plus collected fees, minus what was spent.
+fn floor_budget(raise: &Raise) -> Result<u64> {
+    let reserve = raise.funded_amount - payable_amount(raise);
+    Ok(reserve
+        .checked_add(raise.fees_collected)
+        .ok_or(OwnCurveError::MathOverflow)?
+        .saturating_sub(raise.floor_spent))
+}
+
+/// Treasury quote per 1e9 base units (for events and UIs).
+fn backing_per_token(treasury_quote: u64, circulating: u64) -> u128 {
+    if circulating == 0 {
+        return 0;
+    }
+    (treasury_quote as u128) * 1_000_000_000 / (circulating as u128)
 }
 
 /// Adds the quote that just landed in the treasury to `fees_collected`.
@@ -672,6 +833,42 @@ pub struct ClaimLpFees<'info> {
 }
 
 #[derive(Accounts)]
+pub struct DefendFloor<'info> {
+    #[account(mut, seeds = [RAISE_SEED, raise.dbc_config.as_ref()], bump = raise.bump)]
+    pub raise: Box<Account<'info, Raise>>,
+    /// CHECK: PDA signer (owner of the treasury token accounts)
+    #[account(seeds = [TREASURY_SEED, raise.dbc_config.as_ref()], bump = raise.treasury_bump)]
+    pub treasury: UncheckedAccount<'info>,
+    #[account(mut, token::mint = base_mint, token::authority = treasury, token::token_program = base_token_program)]
+    pub treasury_base: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut, token::mint = quote_mint, token::authority = treasury, token::token_program = quote_token_program)]
+    pub treasury_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut, address = raise.base_mint)]
+    pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = raise.quote_mint)]
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
+    /// CHECK: validated by DAMM v2
+    pub damm_pool_authority: UncheckedAccount<'info>,
+    /// CHECK: validated by DAMM v2 (its vaults and mints must match); the program-set
+    /// minimum output protects the treasury whichever pool is passed.
+    #[account(mut)]
+    pub damm_pool: UncheckedAccount<'info>,
+    /// CHECK: validated by DAMM v2
+    #[account(mut)]
+    pub damm_base_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by DAMM v2
+    #[account(mut)]
+    pub damm_quote_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by DAMM v2
+    pub damm_event_authority: UncheckedAccount<'info>,
+    /// CHECK: address-checked
+    #[account(address = damm_v2::ID)]
+    pub damm_program: UncheckedAccount<'info>,
+    pub base_token_program: Interface<'info, TokenInterface>,
+    pub quote_token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
 pub struct TeamAction<'info> {
     #[account(address = raise.team @ OwnCurveError::NotTeam)]
     pub team: Signer<'info>,
@@ -779,6 +976,63 @@ pub struct Redeem<'info> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn raise_with(funded: u64, floor_bps: u16, tranches: &[u16]) -> Raise {
+        let mut milestones = [Milestone { tranche_bps: 0, status: MilestoneStatus::Released, evidence_hash: [0; 32] }; MAX_MILESTONES];
+        for (i, b) in tranches.iter().enumerate() {
+            milestones[i] = Milestone { tranche_bps: *b, status: MilestoneStatus::Locked, evidence_hash: [0; 32] };
+        }
+        Raise {
+            team: Pubkey::default(),
+            dbc_config: Pubkey::default(),
+            dbc_pool: Pubkey::default(),
+            base_mint: Pubkey::default(),
+            quote_mint: Pubkey::default(),
+            state: RaiseState::Funded,
+            min_treasury_pct: 80,
+            funded_amount: funded,
+            released_amount: 0,
+            fees_collected: 0,
+            floor_reserve_bps: floor_bps,
+            floor_spent: 0,
+            tokens_burned: 0,
+            milestones,
+            milestone_count: tranches.len() as u8,
+            challenge_window: 60,
+            reject_quorum_bps: 1000,
+            proposal_nonce: 0,
+            proposal_milestone: 0,
+            proposal_ends_at: 0,
+            proposal_reject_weight: 0,
+            proposal_evidence_uri: String::new(),
+            bump: 0,
+            treasury_bump: 0,
+        }
+    }
+
+    #[test]
+    fn tranches_pay_exactly_the_payable_amount() {
+        for (funded, floor) in [(400_000_000u64, 0u16), (400_000_001, 2000), (999_999_999, 5000), (7, 3333)] {
+            let mut r = raise_with(funded, floor, &[3000, 3000, 4000]);
+            for i in 0..3 {
+                let t = tranche_amount(&r, i);
+                r.released_amount += t;
+            }
+            assert_eq!(r.released_amount, payable_amount(&r));
+            assert_eq!(payable_amount(&r) + (funded - payable_amount(&r)), funded);
+        }
+    }
+
+    #[test]
+    fn floor_budget_is_reserve_plus_fees_minus_spent() {
+        let mut r = raise_with(400_000_000, 2000, &[10_000]);
+        assert_eq!(floor_budget(&r).unwrap(), 80_000_000);
+        r.fees_collected = 5_000_000;
+        r.floor_spent = 30_000_000;
+        assert_eq!(floor_budget(&r).unwrap(), 55_000_000);
+        r.floor_spent = 100_000_000;
+        assert_eq!(floor_budget(&r).unwrap(), 0);
+    }
 
     #[test]
     fn circulating_excludes_treasury_held() {

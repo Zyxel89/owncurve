@@ -49,6 +49,7 @@ export type RaiseParams = {
   tranchesBps: number[];
   challengeSecs: number;
   quorumBps: number;
+  floorReserveBps: number; // parte de lo recaudado que nunca se paga: respalda el piso de precio
   // Solo para tests de seguridad: configs DBC "maliciosas".
   feeClaimer?: PublicKey;
   creatorMigrationFeePct?: number;
@@ -61,7 +62,21 @@ export const DEFAULT_PARAMS: RaiseParams = {
   tranchesBps: [3000, 3000, 4000],
   challengeSecs: 60,
   quorumBps: 1000,
+  floorReserveBps: 2000,
 };
+
+export type Evidence = { uri: string; hash: number[] };
+
+/** SHA-256 en Node y en el navegador. */
+export async function sha256(text: string): Promise<number[]> {
+  const data = new TextEncoder().encode(text);
+  const buf = await (globalThis.crypto as Crypto).subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(buf));
+}
+
+export async function evidence(uri: string, committed?: string): Promise<Evidence> {
+  return { uri, hash: await sha256(committed?.trim() || uri) };
+}
 
 export const ps = (p: any) => p.poolState ?? p; // SDK ≥1.5.8 anida el estado del pool
 export const stateName = (s: any) => Object.keys(s)[0];
@@ -210,6 +225,7 @@ export class OwnCurve {
         trancheBps: params.tranchesBps,
         challengeWindow: new BN(params.challengeSecs),
         rejectQuorumBps: params.quorumBps,
+        floorReserveBps: params.floorReserveBps,
       })
       .accountsStrict({
         team: team.publicKey,
@@ -457,6 +473,111 @@ export class OwnCurve {
     return this.net.send("claim_lp_fees", [...this.ensureTreasuryAtas(r), ix], []);
   }
 
+  // ---------------------------------------------------------------- piso de precio
+  /** Estado del pool DAMM v2 graduado: reservas y precio (lamports por unidad base). */
+  async dammState(r: Raise) {
+    const damm = createDammV2Program(this.net.conn) as any;
+    const pool = await this.dammPool(r);
+    const info = await this.net.conn.getAccountInfo(pool);
+    if (!info) return null;
+    const p = damm.coder.accounts.decode("pool", info.data);
+    const sqrt = BigInt(p.sqrtPrice.toString());
+    // precio = (sqrt / 2^64)^2 en unidades atómicas (lamports por unidad base)
+    const price = Number((sqrt * sqrt) >> 64n) / 2 ** 64;
+    return {
+      pool,
+      baseReserve: new BN(p.tokenAAmount.toString()),
+      quoteReserve: new BN(p.tokenBAmount.toString()),
+      price,
+    };
+  }
+
+  /** Respaldo por unidad base: lo que la tesorería tiene por cada token en circulación. */
+  async backing(r: Raise) {
+    const treasuryQuote = await this.tokenBalance(r.treasuryQuote);
+    const circulating = (await this.mintSupply(r.baseMint)).sub(await this.tokenBalance(r.treasuryBase));
+    const perUnit = circulating.isZero() ? 0 : Number(treasuryQuote.toString()) / Number(circulating.toString());
+    return { treasuryQuote, circulating, perUnit };
+  }
+
+  /** Presupuesto restante para defender el piso: reserva + comisiones − gastado. */
+  async floorBudget(r: Raise) {
+    const raise = await r.fetch();
+    const funded = new BN(raise.fundedAmount.toString());
+    const reserve = funded.muln(raise.floorReserveBps).divn(10_000);
+    const b = reserve.add(new BN(raise.feesCollected.toString())).sub(new BN(raise.floorSpent.toString()));
+    return b.isNeg() ? new BN(0) : b;
+  }
+
+  /** SOL que conviene gastar para devolver el precio al respaldo (aprox. producto constante,
+   *  descontando la comisión del pool), acotado por el presupuesto. 0 si el precio ya está arriba. */
+  async suggestDefend(r: Raise): Promise<BN> {
+    const st = await this.dammState(r);
+    if (!st) return new BN(0);
+    const { perUnit } = await this.backing(r);
+    if (!(perUnit > 0) || st.price >= perUnit) return new BN(0);
+    const q = Number(st.quoteReserve.toString());
+    const b = Number(st.baseReserve.toString());
+    const target = Math.sqrt(q * b * perUnit); // reserva de SOL con la que precio = respaldo
+    const gap = Math.max(0, (target - q) * 0.9); // margen: comisión y redondeos
+    const budget = await this.floorBudget(r);
+    return BN.min(new BN(Math.floor(gap).toString()), budget);
+  }
+
+  async defendFloor(r: Raise, amountIn: BN) {
+    const pool = await this.dammPool(r);
+    const ix = await this.m
+      .defendFloor(amountIn)
+      .accountsStrict({
+        raise: r.raise,
+        treasury: r.treasury,
+        treasuryBase: r.treasuryBase,
+        treasuryQuote: r.treasuryQuote,
+        baseMint: r.baseMint,
+        quoteMint: NATIVE_MINT,
+        dammPoolAuthority: deriveDammV2PoolAuthority(),
+        dammPool: pool,
+        dammBaseVault: deriveDammV2TokenVaultAddress(pool, r.baseMint),
+        dammQuoteVault: deriveDammV2TokenVaultAddress(pool, NATIVE_MINT),
+        dammEventAuthority: deriveDammV2EventAuthority(),
+        dammProgram: DAMM_V2,
+        baseTokenProgram: TOKEN_2022_PROGRAM_ID,
+        quoteTokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .instruction();
+    return this.net.send("defend_floor", [...this.ensureTreasuryAtas(r), ix], []);
+  }
+
+  /** Swap token→SOL en DAMM v2 (para tests y demo: empujar el precio hacia abajo). */
+  async dammSell(r: Raise, baseIn: BN, seller = this.net.payer) {
+    const damm = createDammV2Program(this.net.conn) as any;
+    const pool = await this.dammPool(r);
+    const wsol = r.quoteAta(seller.publicKey);
+    const ixs = [
+      createAssociatedTokenAccountIdempotentInstruction(seller.publicKey, wsol, seller.publicKey, NATIVE_MINT),
+      await damm.methods
+        .swap({ amountIn: baseIn, minimumAmountOut: new BN(0) })
+        .accountsPartial({
+          poolAuthority: deriveDammV2PoolAuthority(),
+          pool,
+          inputTokenAccount: r.baseAta(seller.publicKey),
+          outputTokenAccount: wsol,
+          tokenAVault: deriveDammV2TokenVaultAddress(pool, r.baseMint),
+          tokenBVault: deriveDammV2TokenVaultAddress(pool, NATIVE_MINT),
+          tokenAMint: r.baseMint,
+          tokenBMint: NATIVE_MINT,
+          payer: seller.publicKey,
+          tokenAProgram: TOKEN_2022_PROGRAM_ID,
+          tokenBProgram: TOKEN_PROGRAM_ID,
+          referralTokenAccount: null,
+          eventAuthority: deriveDammV2EventAuthority(),
+          program: DAMM_V2,
+        })
+        .instruction(),
+    ];
+    return this.net.send("venta en DAMM v2", ixs, [seller]);
+  }
+
   /** Swap SOL→token en el pool DAMM v2 graduado (genera comisiones de LP). */
   async dammBuy(r: Raise, lamportsIn: BN, buyer = this.net.payer) {
     const damm = createDammV2Program(this.net.conn) as any;
@@ -492,8 +613,12 @@ export class OwnCurve {
   }
 
   // ---------------------------------------------------------------- gobernanza
-  async propose(r: Raise, team = this.net.payer) {
-    const ix = await this.m.proposeRelease().accountsStrict({ team: team.publicKey, raise: r.raise }).instruction();
+  async propose(r: Raise, team = this.net.payer, ev?: Evidence) {
+    const e = ev ?? (await evidence("https://github.com/owncurve/owncurve/releases"));
+    const ix = await this.m
+      .proposeRelease(e.uri, e.hash)
+      .accountsStrict({ team: team.publicKey, raise: r.raise })
+      .instruction();
     return this.net.send("propose_release", [ix], [team]);
   }
 

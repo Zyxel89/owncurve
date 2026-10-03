@@ -38,6 +38,8 @@ export async function makeNet(): Promise<Net> {
 
   const url = process.env.RPC_URL ?? "https://api.devnet.solana.com";
   const conn = new Connection(url, "confirmed");
+  // RPC local sin websocket (el servidor de tests sobre LiteSVM): confirmar consultando.
+  const pollOnly = /^http:\/\/(localhost|127\.0\.0\.1)/.test(url);
   const payer = loadKeypair(process.env.WALLET ?? "~/.config/solana/id.json");
   const send = async (label: string, ixs: TransactionInstruction[], signers: Keypair[]) => {
     const tx = new Transaction().add(
@@ -50,6 +52,7 @@ export async function makeNet(): Promise<Net> {
     let lastErr: unknown;
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
+        if (pollOnly) return await sendAndPoll(conn, tx, dedupe([payer, ...signers]));
         const sig = await sendAndConfirmTransaction(conn, tx, dedupe([payer, ...signers]), {
           commitment: "confirmed",
         });
@@ -69,7 +72,8 @@ export async function makeNet(): Promise<Net> {
     throw new TxError(label, String((lastErr as any)?.message ?? lastErr));
   };
   return {
-    cluster,
+    // un RPC local (LiteSVM detrás de JSON-RPC) usa la config local de DAMM v2
+    cluster: pollOnly ? "local" : cluster,
     conn,
     payer,
     send,
@@ -79,6 +83,19 @@ export async function makeNet(): Promise<Net> {
       await send("fondear", [SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: to, lamports })], []);
     },
   };
+}
+
+async function sendAndPoll(conn: Connection, tx: Transaction, signers: Keypair[]) {
+  tx.recentBlockhash = (await conn.getLatestBlockhash("confirmed")).blockhash;
+  tx.sign(...signers);
+  const sig = await conn.sendRawTransaction(tx.serialize(), { preflightCommitment: "confirmed" });
+  for (let i = 0; i < 60; i++) {
+    const st = (await conn.getSignatureStatuses([sig])).value[0];
+    if (st?.err) throw new Error(`Transaction ${sig} failed: ${JSON.stringify(st.err)}`);
+    if (st) return sig;
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error(`Transaction ${sig} not confirmed`);
 }
 
 export class TxError extends Error {

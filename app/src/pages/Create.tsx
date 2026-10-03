@@ -17,6 +17,7 @@ export function Create() {
   const [tranches, setTranches] = useState("30, 30, 40");
   const [windowSecs, setWindowSecs] = useState("60");
   const [quorum, setQuorum] = useState("10");
+  const [floor, setFloor] = useState("20");
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,6 +35,8 @@ export function Create() {
           ? "Give holders at least 60 seconds to object."
           : Number(quorum) <= 0 || Number(quorum) > 30
             ? "The quorum must be between 1% and 30% of the supply."
+            : !(Number(floor) >= 0 && Number(floor) <= 50)
+              ? "Keep between 0% and 50% of the treasury as a price floor."
             : !(Number(target) > 0)
               ? "Set how much SOL the curve should raise."
               : null;
@@ -53,6 +56,7 @@ export function Create() {
         tranchesBps: trancheList.map((t) => Math.round(t * 100)),
         challengeSecs: Math.round(Number(windowSecs)),
         quorumBps: Math.round(Number(quorum) * 100),
+        floorReserveBps: Math.round(Number(floor) * 100),
       };
       setStep("Creating the raise and its Meteora curve (1 of 2)…");
       await oc.createRaise(params, configKp);
@@ -116,6 +120,11 @@ export function Create() {
           <label>
             Supply that can stop a tranche (%)
             <input inputMode="decimal" value={quorum} onChange={(e) => setQuorum(e.target.value)} />
+          </label>
+          <label>
+            Treasury kept as a price floor (%)
+            <input inputMode="decimal" value={floor} onChange={(e) => setFloor(e.target.value)} />
+            <small>Never paid to the team. If the token trades below its backing, it buys tokens back and burns them.</small>
           </label>
         </fieldset>
         {formError && <p className="error">{formError}</p>}

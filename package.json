@@ -8,7 +8,9 @@
     "test": "CLUSTER=local tsx --test tests/owncurve.test.ts",
     "e2e": "tsx tests/e2e/ui.e2e.ts",
     "app": "vite --config app/vite.config.ts",
-    "app:build": "vite build --config app/vite.config.ts"
+    "app:build": "vite build --config app/vite.config.ts",
+    "owncurve": "tsx scripts/cli.ts",
+    "test:cli": "tsx --test tests/cli.test.ts"
   },
   "dependencies": {
     "@anchor-lang/core": "1.2.0",

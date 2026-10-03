@@ -13,6 +13,10 @@ pub const MAX_REJECT_QUORUM_BPS: u16 = 3_000; // blocking a tranche never needs 
 /// DBC `TokenAuthorityOption::CreatorUpdateAndMintAuthority`.
 pub const DBC_CREATOR_MINT_AUTHORITY: u8 = 3;
 pub const BPS: u64 = 10_000;
+/// Share of the raise a team can set aside as a permanent floor reserve (never paid out).
+pub const MAX_FLOOR_RESERVE_BPS: u16 = 5_000;
+/// Max length of the evidence link attached to a tranche request.
+pub const MAX_EVIDENCE_URI: usize = 160;
 
 /// Lifecycle of a raise.
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, Debug, InitSpace)]
@@ -38,9 +42,11 @@ pub enum MilestoneStatus {
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, InitSpace)]
 pub struct Milestone {
-    /// Share of the funded treasury released at this milestone, in bps.
+    /// Share of the payable treasury (funded minus floor reserve) released at this milestone, in bps.
     pub tranche_bps: u16,
     pub status: MilestoneStatus,
+    /// SHA-256 the team committed to when requesting this tranche (e.g. a release or commit hash).
+    pub evidence_hash: [u8; 32],
 }
 
 /// One raise = one DBC config = one DBC pool.
@@ -68,6 +74,13 @@ pub struct Raise {
     /// DAMM v2 LP fees of the treasury-owned position. Never released to the team: it backs NAV.
     pub fees_collected: u64,
 
+    /// Share of `funded_amount` kept forever as a floor reserve (bps). Tranches split the rest.
+    pub floor_reserve_bps: u16,
+    /// Quote spent by `defend_floor` buying tokens below backing.
+    pub floor_spent: u64,
+    /// Base tokens bought back by `defend_floor` and burned.
+    pub tokens_burned: u64,
+
     pub milestones: [Milestone; MAX_MILESTONES],
     pub milestone_count: u8,
 
@@ -81,6 +94,9 @@ pub struct Raise {
     pub proposal_milestone: u8,
     pub proposal_ends_at: i64,
     pub proposal_reject_weight: u64,
+    /// Link to the delivered work for the active (or last) tranche request.
+    #[max_len(160)]
+    pub proposal_evidence_uri: String,
 
     pub bump: u8,
     pub treasury_bump: u8,

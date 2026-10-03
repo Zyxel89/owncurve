@@ -1,7 +1,7 @@
 import { BN } from "@anchor-lang/core";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { useMemo, useState } from "react";
-import { OwnCurve, stateName } from "../../../scripts/lib/owncurve";
+import { OwnCurve, evidence, stateName } from "../../../scripts/lib/owncurve";
 import { Guarantees } from "../components/Guarantees";
 import { VaultBar, fmtLeft } from "../components/VaultBar";
 import { makeBrowserNet } from "../lib/browserNet";
@@ -60,6 +60,10 @@ export function RaisePage({ config }: { config: string }) {
             <dd>{d.curve ? fmtSol(d.curve.threshold.muln(treasuryPct).divn(100)) : "—"} SOL</dd>
           </div>
           <div>
+            <dt>Kept as a price floor</dt>
+            <dd>{d.raise.floorReserveBps / 100}% of the treasury</dd>
+          </div>
+          <div>
             <dt>Paid to the team in</dt>
             <dd>
               {Number(d.raise.milestoneCount)} tranches of{" "}
@@ -79,7 +83,7 @@ export function RaisePage({ config }: { config: string }) {
           <div>
             <dt>Paid to the team</dt>
             <dd>
-              {fmtSol(d.raise.releasedAmount)} of {fmtSol(d.raise.fundedAmount)} SOL
+              {fmtSol(d.raise.releasedAmount)} of {fmtSol(d.payable)} SOL
             </dd>
           </div>
           <div>
@@ -87,7 +91,7 @@ export function RaisePage({ config }: { config: string }) {
             <dd>{fmtSol(d.raise.feesCollected, 4)} SOL</dd>
           </div>
           <div>
-            <dt>Redeem value of 1,000,000 tokens</dt>
+            <dt>Treasury backing per 1,000,000 tokens</dt>
             <dd>{d.navPerMillion.toFixed(4)} SOL</dd>
           </div>
         </dl>
@@ -109,6 +113,9 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
     acc.refreshBalance();
   });
   const [buySol, setBuySol] = useState("0.1");
+  const [evUri, setEvUri] = useState("");
+  const [evNote, setEvNote] = useState("");
+  const evOk = /^https?:\/\/\S+$/.test(evUri.trim()) && evUri.trim().length <= 160;
   const oc = useMemo(() => (acc.signer ? new OwnCurve(makeBrowserNet(acc.conn, acc.signer), IDL) : null), [acc.conn, acc.signer]);
 
   const me = acc.signer?.publicKey;
@@ -119,7 +126,11 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
   const activeVote = d.user?.votes.find((v) => v.nonce === nonce);
   const nextMilestone = (d.raise.milestones as any[]).findIndex((m) => stateName(m.status) === "locked");
   const nextAmount =
-    nextMilestone >= 0 ? new BN(d.raise.fundedAmount.toString()).muln(d.raise.milestones[nextMilestone].trancheBps).divn(10_000) : null;
+    nextMilestone < 0
+      ? null
+      : nextMilestone === Number(d.raise.milestoneCount) - 1
+        ? d.payable.sub(new BN(d.raise.releasedAmount.toString()))
+        : d.payable.muln(d.raise.milestones[nextMilestone].trancheBps).divn(10_000);
   const windowOpen = d.proposal ? now < d.proposal.endsAt : false;
   const myBase = d.user?.base ?? new BN(0);
   const redeemPreview = d.circulating.isZero() ? 0 : (Number(myBase.toString()) / Number(d.circulating.toString())) * Number(d.treasuryQuote.toString());
@@ -158,14 +169,37 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
       btn("harvest", "Move the raise into the treasury", "The treasury is funded.", () => oc.harvest(r), true);
 
     if (d.state === "funded") {
-      if (!d.proposal && isTeam && nextMilestone >= 0 && nextAmount)
-        btn(
-          "propose",
-          `Request tranche ${nextMilestone + 1} (${fmtSol(nextAmount)} SOL)`,
-          "Tranche requested. Holders can object until the countdown ends.",
-          () => oc.propose(r),
-          true,
+      if (!d.proposal && isTeam && nextMilestone >= 0 && nextAmount) {
+        const label = `Request tranche ${nextMilestone + 1} (${fmtSol(nextAmount)} SOL)`;
+        buttons.push(
+          <div key="propose" className="request">
+            <label>
+              Link to the delivered work
+              <input
+                type="url"
+                placeholder="https://github.com/you/app/releases/tag/v1.0"
+                value={evUri}
+                onChange={(e) => setEvUri(e.target.value)}
+              />
+            </label>
+            <label>
+              What you shipped (its SHA-256 is stored on-chain)
+              <input placeholder="Beta live: 1,200 users, audit report v1" value={evNote} onChange={(e) => setEvNote(e.target.value)} />
+            </label>
+            <button
+              className="btn primary"
+              disabled={!!act.busy || !evOk}
+              onClick={() =>
+                act.run(label, "Tranche requested. Holders can object until the countdown ends.", async () =>
+                  oc.propose(r, undefined, await evidence(evUri.trim(), evNote)),
+                )
+              }
+            >
+              {act.busy === label ? "Waiting for the network…" : label}
+            </button>
+          </div>,
         );
+      }
       if (d.proposal && windowOpen && myBase.gtn(0))
         btn(
           "reject",
@@ -190,6 +224,14 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
         () => oc.redeem(r, oc.net.payer, myBase),
         true,
       );
+    if (d.market && d.market.suggest.gtn(0))
+      btn(
+        "defend",
+        `Buy back below backing with ${fmtSol(d.market.suggest, 4)} SOL and burn`,
+        "Floor defended: the treasury bought tokens under their backing and burned them.",
+        () => oc.defendFloor(r, d.market!.suggest),
+        true,
+      );
     if (["funded", "completed", "liquidating"].includes(d.state)) {
       if (d.curve && !d.curve.migrated)
         btn("migrate", "Graduate the pool to Meteora DAMM v2", "The token now trades on DAMM v2.", async () => (await oc.migrate(r)).sig);
@@ -206,6 +248,16 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
             <strong>Tranche {d.proposal.milestone + 1}</strong> is waiting.{" "}
             {windowOpen ? `Objections close in ${fmtLeft(d.proposal.endsAt - now)}.` : "The objection window has closed."}
           </p>
+          {d.proposal.evidenceUri && (
+            <p className="evidence">
+              Evidence:{" "}
+              <a href={d.proposal.evidenceUri} target="_blank" rel="noreferrer">
+                {d.proposal.evidenceUri}
+              </a>
+              <br />
+              <code title="SHA-256 committed on-chain with the request">sha256 {d.proposal.evidenceHash.slice(0, 16)}…</code>
+            </p>
+          )}
           <div className="quorum" aria-label="Objections against quorum">
             <span style={{ width: `${Math.min(100, quorumPct(d.proposal.rejectWeight, d.proposal.quorum))}%` }} />
           </div>
@@ -217,6 +269,7 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
           </p>
         </div>
       )}
+      {d.market && <FloorPanel d={d} />}
       {!acc.signer && <p className="muted">Connect a wallet or use a test wallet to buy, object or redeem.</p>}
       {acc.signer && (
         <p className="fine">
@@ -240,6 +293,34 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
         </p>
       )}
     </section>
+  );
+}
+
+function FloorPanel({ d }: { d: RaiseDetail }) {
+  const m = d.market!;
+  const below = m.pricePerMillion < m.backingPerMillion;
+  // escala: 0 … 2× el respaldo (el respaldo queda en el centro)
+  const scale = Math.max(m.backingPerMillion * 2, m.pricePerMillion * 1.1, 1e-12);
+  const pos = (v: number) => `${Math.min(100, (v / scale) * 100)}%`;
+  const fmt = (v: number) => (v >= 0.01 ? v.toFixed(4) : v.toPrecision(3));
+  return (
+    <div className="floor-panel" aria-label="Market price against treasury backing">
+      <p>
+        <strong>Price floor.</strong> On Meteora DAMM v2, 1,000,000 {d.symbol} trade at <strong>{fmt(m.pricePerMillion)} SOL</strong>;
+        the treasury backs them with <strong>{fmt(m.backingPerMillion)} SOL</strong>.
+      </p>
+      <div className="gauge">
+        <span className="backing" style={{ left: pos(m.backingPerMillion) }} title="Treasury backing" />
+        <span className={`price ${below ? "below" : ""}`} style={{ left: pos(m.pricePerMillion) }} title="Market price" />
+      </div>
+      <p className="fine">
+        {below
+          ? "The token trades below what the treasury holds for it. Anyone can make the treasury buy it back and burn it, which lifts the backing of every remaining token."
+          : "The price is above the backing. If it ever drops below, anyone can trigger a buyback that burns the tokens."}{" "}
+        Floor budget left: {fmtSol(d.floorBudget, 4)} SOL
+        {Number(d.raise.tokensBurned) > 0 ? ` · ${fmtTokens(new BN(d.raise.tokensBurned.toString()))} tokens burned so far` : ""}.
+      </p>
+    </div>
   );
 }
 

@@ -114,6 +114,30 @@ export async function startRpc(port = 8899) {
       statuses.set(sig, { slot: slot(), err: null });
       return sig;
     },
+    simulateTransaction: ([b64, cfg]) => {
+      const raw = Buffer.from(b64, cfg?.encoding === "base58" ? "base64" : "base64");
+      let tx: Transaction | VersionedTransaction;
+      try {
+        tx = Transaction.from(raw);
+        tx.compileMessage().accountKeys.forEach(remember);
+      } catch {
+        tx = VersionedTransaction.deserialize(raw);
+        tx.message.staticAccountKeys.forEach(remember);
+      }
+      const res: any = svm.simulateTransaction(tx as any);
+      const failed = res.constructor.name === "FailedTransactionMetadata" || typeof res.err === "function";
+      const meta = failed ? res.meta() : res.meta();
+      return {
+        context: ctx(),
+        value: {
+          err: failed ? res.err().toString() : null,
+          logs: meta.logs(),
+          unitsConsumed: Number(meta.computeUnitsConsumed()),
+          accounts: null,
+          returnData: null,
+        },
+      };
+    },
     // Solo para tests: adelanta el reloj de la cadena.
     owncurve_warp: ([secs]) => {
       const c = svm.getClock();

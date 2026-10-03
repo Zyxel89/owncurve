@@ -8,7 +8,7 @@ import { Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadIdl, makeNet } from "../scripts/lib/net";
-import { DEFAULT_PARAMS, OwnCurve, Raise, RaiseParams, stateName } from "../scripts/lib/owncurve";
+import { DEFAULT_PARAMS, OwnCurve, Raise, RaiseParams, evidence, sha256, stateName } from "../scripts/lib/owncurve";
 
 process.env.CLUSTER = "local";
 
@@ -55,10 +55,12 @@ async function circulating(oc: OwnCurve, r: Raise) {
 }
 
 // ------------------------------------------------------------------ flujo feliz
-test("2.4 flujo feliz: la tesorería se financia y los 3 tramos se liberan al equipo", async () => {
+test("2.4 flujo feliz: la tesorería se financia y los 3 tramos se liberan al equipo (menos la reserva del piso)", async () => {
   const { oc, net, r, p } = await fundedRaise();
-  const funded = n((await raiseOf(r)).fundedAmount);
-  assert.ok(funded.eq(new BN(p.thresholdSol * LAMPORTS_PER_SOL).muln(p.treasuryPct).divn(100)), "80% del umbral");
+  const fundedAll = n((await raiseOf(r)).fundedAmount);
+  assert.ok(fundedAll.eq(new BN(p.thresholdSol * LAMPORTS_PER_SOL).muln(p.treasuryPct).divn(100)), "80% del umbral");
+  const reserve = fundedAll.muln(p.floorReserveBps).divn(10_000);
+  const funded = fundedAll.sub(reserve); // lo que el equipo puede cobrar en tramos
 
   const teamQuote = r.quoteAta(net.payer.publicKey);
   let paid = new BN(0);
@@ -75,7 +77,76 @@ test("2.4 flujo feliz: la tesorería se financia y los 3 tramos se liberan al eq
   }
   const raise = await raiseOf(r);
   assert.equal(stateName(raise.state), "completed");
-  assert.ok(n(raise.releasedAmount).eq(funded), "todo lo financiado fue liberado, ni un lamport más");
+  assert.ok(n(raise.releasedAmount).eq(funded), "todo lo cobrable fue liberado, ni un lamport más");
+  assert.ok((await oc.tokenBalance(r.treasuryQuote)).gte(reserve), "la reserva del piso sigue en la tesorería");
+});
+
+// ------------------------------------------------------------------ hitos con evidencia
+test("2.7 cada tramo se pide con evidencia: el enlace y su hash quedan en cadena", async () => {
+  const { oc, r } = await fundedRaise();
+  const ev = await evidence("https://github.com/acme/app/releases/tag/v0.1", "commit 4f2a9c1: beta shipped");
+  await oc.propose(r, undefined, ev);
+  const raise = await raiseOf(r);
+  assert.equal(raise.proposalEvidenceUri, ev.uri);
+  assert.deepEqual(Array.from(raise.milestones[0].evidenceHash), await sha256("commit 4f2a9c1: beta shipped"));
+});
+
+test("2.7 propose_release sin evidencia falla", async () => {
+  const { oc, r } = await fundedRaise();
+  await expectError(oc.propose(r, undefined, { uri: "  ", hash: new Array(32).fill(0) }), "InvalidEvidence");
+  await expectError(oc.propose(r, undefined, { uri: "https://x.io/" + "a".repeat(200), hash: new Array(32).fill(0) }), "InvalidEvidence");
+});
+
+// ------------------------------------------------------------------ piso de precio
+/** Raise graduado en DAMM v2 cuyo precio de mercado cae por debajo del respaldo de la tesorería. */
+async function crashedRaise() {
+  const s = await fundedRaise();
+  await s.oc.migrate(s.r);
+  const mine = await s.oc.tokenBalance(s.r.baseAta(s.net.payer.publicKey));
+  await s.oc.dammSell(s.r, mine.muln(6).divn(10)); // venta de pánico: 60% de lo que tiene el equipo
+  return s;
+}
+
+test("2.8 defend_floor: con el precio por debajo del respaldo, la tesorería recompra y quema", async () => {
+  const { oc, r } = await crashedRaise();
+  const st = await oc.dammState(r);
+  const before = await oc.backing(r);
+  assert.ok(st!.price < before.perUnit, `precio ${st!.price} < respaldo ${before.perUnit}`);
+  const amount = await oc.suggestDefend(r);
+  assert.ok(amount.gtn(0), "hay algo que defender");
+  const supply = await oc.mintSupply(r.baseMint);
+  await oc.defendFloor(r, amount);
+  const raise = await raiseOf(r);
+  const burned = n(raise.tokensBurned);
+  assert.ok(n(raise.floorSpent).eq(amount), "floor_spent registra lo gastado");
+  assert.ok(burned.gtn(0) && (await oc.mintSupply(r.baseMint)).eq(supply.sub(burned)), "lo recomprado se quema");
+  const after = await oc.backing(r);
+  assert.ok(after.perUnit > before.perUnit, `el respaldo por token sube: ${before.perUnit} → ${after.perUnit}`);
+  assert.ok((await oc.dammState(r))!.price > st!.price, "el precio de mercado sube");
+});
+
+test("2.8 defend_floor no recompra por encima del respaldo", async () => {
+  const { oc, r } = await fundedRaise();
+  await oc.migrate(r);
+  const st = await oc.dammState(r);
+  const b = await oc.backing(r);
+  if (st!.price >= b.perUnit) {
+    await expectError(oc.defendFloor(r, new BN(1_000_000)), "Slippage|NothingToDefend|0x");
+  } else {
+    // si el precio de graduación ya estuviera por debajo, una compra grande lo cruzaría
+    await expectError(oc.defendFloor(r, await oc.floorBudget(r)), "Slippage|NothingToDefend|0x");
+  }
+});
+
+test("2.8 defend_floor no puede gastar más que su presupuesto (reserva + comisiones)", async () => {
+  const { oc, r } = await crashedRaise();
+  const budget = await oc.floorBudget(r);
+  await expectError(oc.defendFloor(r, budget.addn(1)), "FloorBudgetExceeded");
+});
+
+test("2.8 init_raise limita la reserva del piso a ≤ 50%", async () => {
+  const s = await setup({ floorReserveBps: 5001 });
+  await expectError(s.oc.createRaise(s.p), "InvalidGovernance");
 });
 
 test("2.1 comisiones de trading de la curva van a la tesorería", async () => {

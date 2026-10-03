@@ -1,4 +1,5 @@
 import { BN } from "@anchor-lang/core";
+import bs58 from "bs58";
 import { TOKEN_2022_PROGRAM_ID, getTokenMetadata } from "@solana/spl-token";
 import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -55,10 +56,22 @@ export type RaiseRow = {
 };
 
 export async function listRaises(oc: OwnCurve): Promise<RaiseRow[]> {
-  // Solo cuentas con el tamaño actual: los raises creados por versiones anteriores del
-  // programa (p. ej. el de la F1 en devnet) tienen otro tamaño y no se pueden decodificar.
-  const client = (oc.program.account as any).raise;
-  const all: { publicKey: PublicKey; account: any }[] = await client.all([{ dataSize: client.size }]);
+  // Todas las cuentas Raise (por discriminador); las de versiones anteriores del programa
+  // (p. ej. las de F1/F3 en devnet) tienen otro formato: no decodifican y se ignoran.
+  const disc = IDL.accounts.find((a: any) => a.name === "Raise").discriminator as number[];
+  const raw = await oc.net.conn.getProgramAccounts(oc.programId, {
+    filters: [{ memcmp: { offset: 0, bytes: bs58.encode(Uint8Array.from(disc)) } }],
+  });
+  const all: { publicKey: PublicKey; account: any }[] = [];
+  for (const { pubkey, account } of raw) {
+    try {
+      const dec = oc.program.coder.accounts.decode("raise", account.data);
+      if (typeof dec.proposalEvidenceUri !== "string" || dec.floorReserveBps > 5000) continue;
+      all.push({ publicKey: pubkey, account: dec });
+    } catch {
+      /* formato antiguo */
+    }
+  }
   const rows = await Promise.all(
     all.map(async ({ account }) => {
       const config = new PublicKey(account.dbcConfig);
@@ -105,7 +118,13 @@ export type RaiseDetail = {
   treasuryQuote: BN;
   circulating: BN;
   navPerMillion: number; // SOL que recibe quien redime 1.000.000 tokens
-  proposal: { milestone: number; endsAt: number; rejectWeight: BN; quorum: BN } | null;
+  proposal: { milestone: number; endsAt: number; rejectWeight: BN; quorum: BN; evidenceUri: string; evidenceHash: string } | null;
+  /** Lo que el equipo puede cobrar en tramos: financiado − reserva del piso. */
+  payable: BN;
+  floorReserve: BN;
+  floorBudget: BN;
+  /** Mercado DAMM v2 tras graduar: precio y respaldo en SOL por 1.000.000 tokens. */
+  market: { pricePerMillion: number; backingPerMillion: number; suggest: BN } | null;
   user: { base: BN; sol: number; votes: Vote[] } | null;
   /** Segundos que el reloj de la cadena va por delante (+) o por detrás (−) del navegador. */
   clockSkew: number;
@@ -147,8 +166,31 @@ export async function loadRaise(oc: OwnCurve, config: PublicKey, user: PublicKey
           endsAt: Number(raise.proposalEndsAt.toString()),
           rejectWeight: new BN(raise.proposalRejectWeight.toString()),
           quorum: circulating.muln(raise.rejectQuorumBps).divn(10_000),
+          evidenceUri: String(raise.proposalEvidenceUri ?? ""),
+          evidenceHash: Buffer.from(raise.milestones[active].evidenceHash).toString("hex"),
         }
       : null;
+
+  const funded = new BN(raise.fundedAmount.toString());
+  const floorReserve = funded.muln(raise.floorReserveBps).divn(10_000);
+  const payable = funded.sub(floorReserve);
+  let floorBudget = floorReserve.add(new BN(raise.feesCollected.toString())).sub(new BN(raise.floorSpent.toString()));
+  if (floorBudget.isNeg()) floorBudget = new BN(0);
+  let market: RaiseDetail["market"] = null;
+  if (curve?.migrated) {
+    try {
+      const st = await oc.dammState(r);
+      if (st) {
+        // lamports por unidad atómica → SOL por 1.000.000 tokens
+        const k = (10 ** BASE_DECIMALS * 1_000_000) / LAMPORTS_PER_SOL;
+        const backingUnit = circulating.isZero() ? 0 : Number(treasuryQuote.toString()) / Number(circulating.toString());
+        const suggest = ["funded", "completed"].includes(state) ? await oc.suggestDefend(r) : new BN(0);
+        market = { pricePerMillion: st.price * k, backingPerMillion: backingUnit * k, suggest };
+      }
+    } catch {
+      /* pool aún no legible */
+    }
+  }
 
   let userInfo: RaiseDetail["user"] = null;
   if (user && bound) {
@@ -186,6 +228,10 @@ export async function loadRaise(oc: OwnCurve, config: PublicKey, user: PublicKey
     circulating,
     navPerMillion,
     proposal,
+    payable,
+    floorReserve,
+    floorBudget,
+    market,
     user: userInfo,
   };
 }

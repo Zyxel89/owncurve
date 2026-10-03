@@ -339,6 +339,15 @@ td a {
   background:
     repeating-linear-gradient(90deg, transparent 0 4px, rgba(162, 59, 59, 0.35) 4px 5px), #f3e6e4;
 }
+/* reserva del piso: verde bóveda en trama horizontal, se queda con los holders */
+.seg.floor {
+  background:
+    repeating-linear-gradient(0deg, transparent 0 5px, rgba(46, 107, 87, 0.35) 5px 6px), #e3eee7;
+  border: 1.5px solid var(--vault);
+}
+.seg-labels li.floor {
+  border-left-color: var(--vault);
+}
 .vault-caption {
   display: flex;
   align-items: baseline;
@@ -452,6 +461,70 @@ td a {
   background: var(--intaglio);
 }
 
+.evidence {
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+.evidence code {
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+}
+.request {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  width: 100%;
+  border: 1.5px dashed var(--line);
+  border-radius: 8px;
+  padding: var(--s3);
+}
+.request label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+.request input {
+  width: 100%;
+}
+.floor-panel {
+  border: 1.5px solid var(--vault);
+  border-radius: 8px;
+  padding: var(--s3);
+  margin-bottom: var(--s3);
+  background: #e9f1ec;
+}
+.floor-panel p {
+  margin: 0 0 var(--s2);
+}
+.gauge {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--white);
+  border: 1px solid var(--line);
+  margin: var(--s2) 0 var(--s3);
+}
+.gauge .backing {
+  position: absolute;
+  top: -5px;
+  bottom: -5px;
+  width: 2px;
+  background: var(--vault);
+}
+.gauge .price {
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  border-radius: 50%;
+  background: var(--ink);
+  border: 2px solid var(--white);
+}
+.gauge .price.below {
+  background: var(--intaglio);
+}
 .guarantees ul {
   list-style: none;
   margin: 0;

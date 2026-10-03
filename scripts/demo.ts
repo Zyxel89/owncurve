@@ -1,7 +1,8 @@
 // F3 · Demo de punta a punta en devnet (o LiteSVM) con dos raises reales:
 //
 //  A "camino feliz":  lanzar → graduar → harvest → comisiones → migrar a DAMM v2 →
-//                     comisiones de LP → los 3 tramos liberados al equipo
+//                     comisiones de LP → venta de pánico → la tesorería defiende el piso
+//                     (recompra bajo el respaldo y quema) → 3 tramos con evidencia al equipo
 //  B "rechazo":       lanzar → graduar → harvest → el equipo propone → un holder bloquea
 //                     con quórum → liquidación → el holder redime sus tokens por SOL
 //
@@ -14,11 +15,19 @@ import { BN } from "@anchor-lang/core";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import fs from "fs";
 import { TxError, loadIdl, makeNet } from "./lib/net";
-import { DEFAULT_PARAMS, OwnCurve, Raise, RaiseParams, stateName } from "./lib/owncurve";
+import { DEFAULT_PARAMS, OwnCurve, Raise, RaiseParams, evidence, stateName } from "./lib/owncurve";
 
 type Step = { name: string; sig?: string; note?: string };
 type RaiseState = { config: number[]; baseMint: number[]; nftMints?: string[]; steps: Step[] };
-type DemoState = { programId: string; voter: number[]; a: RaiseState; b: RaiseState };
+type DemoState = { version?: number; programId: string; voter: number[]; a: RaiseState; b: RaiseState };
+// v2: piso de precio + evidencia por tramo (las cuentas Raise cambiaron de tamaño)
+const DEMO_VERSION = 2;
+const EVIDENCE_BASE = process.env.EVIDENCE_BASE ?? "https://github.com/owncurve/owncurve";
+const MILESTONES = [
+  "M1 · on-chain program: treasury, tranches, objections, redemption",
+  "M2 · price floor: treasury buys back below backing and burns",
+  "M3 · web app + agent skill",
+];
 
 const sol = (v: BN | number | bigint) => (Number(v.toString()) / LAMPORTS_PER_SOL).toFixed(4);
 const kp = (s: number[]) => Keypair.fromSecretKey(Uint8Array.from(s));
@@ -43,8 +52,9 @@ async function main() {
   const file = `.owncurve/demo-${net.cluster}.json`;
   let st: DemoState | null =
     net.cluster === "devnet" && fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
-  if (st && st.programId !== oc.programId.toBase58()) st = null;
+  if (st && (st.programId !== oc.programId.toBase58() || st.version !== DEMO_VERSION)) st = null;
   st ??= {
+    version: DEMO_VERSION,
     programId: oc.programId.toBase58(),
     voter: Array.from(Keypair.generate().secretKey),
     a: newRaiseState(),
@@ -113,16 +123,43 @@ async function main() {
     const pos = await oc.treasuryPosition(A, st!.a.nftMints!.map((s) => new PublicKey(s)));
     return oc.claimLpFees(A, pos);
   }, async () => `fees totales ${sol((await A.fetch()).feesCollected)} SOL`);
+
+  // Piso de precio: alguien vende fuerte en DAMM v2 y el precio cae bajo el respaldo
+  let floorNote = "";
+  await step(st.a, "A8b venta de pánico en DAMM v2", async () => {
+    const mine = await oc.tokenBalance(A.baseAta(payer));
+    return oc.dammSell(A, mine.muln(6).divn(10));
+  }, async () => {
+    const s = await oc.dammState(A);
+    const b = await oc.backing(A);
+    return `precio ${(s!.price * 1e3).toPrecision(3)} vs respaldo ${(b.perUnit * 1e3).toPrecision(3)} SOL/M tokens`;
+  });
+  await step(st.a, "A8c defend_floor", async () => {
+    const amount = await oc.suggestDefend(A);
+    if (amount.isZero()) {
+      floorNote = "precio ya sobre el respaldo";
+      return;
+    }
+    const before = (await oc.backing(A)).perUnit;
+    const sig = await oc.defendFloor(A, amount);
+    const after = (await oc.backing(A)).perUnit;
+    const raise = await A.fetch();
+    const burned = Number(raise.tokensBurned.toString()) / 1e6;
+    floorNote = `recompró ${sol(raise.floorSpent)} SOL, quemó ${burned.toLocaleString("en-US", { maximumFractionDigits: 0 })} tokens, respaldo +${(((after - before) / before) * 100).toFixed(0)}%`;
+    return sig;
+  }, async () => floorNote);
   for (let i = 1; i <= pA.tranchesBps.length; i++) {
     await step(st.a, `A9.${i} proponer tramo ${i}`, async () => {
       const raise = await A.fetch();
       const active = raise.milestones.some((m: any) => stateName(m.status) === "proposed");
-      if (!active) return oc.propose(A);
+      if (!active)
+        return oc.propose(A, undefined, await evidence(`${EVIDENCE_BASE}/blob/main/docs/MILESTONES.md#m${i}`, MILESTONES[i - 1]));
     });
     await step(st.a, `A9.${i} esperar ventana (${pA.challengeSecs}s)`, async () => net.advanceTime(pA.challengeSecs));
     await step(st.a, `A9.${i} finalizar tramo ${i}`, () => finalizeWhenReady(A), async () => {
       const raise = await A.fetch();
-      return `liberado ${sol(raise.releasedAmount)} / ${sol(raise.fundedAmount)} SOL`;
+      const payable = new BN(raise.fundedAmount.toString()).muln(10_000 - raise.floorReserveBps).divn(10_000);
+      return `liberado ${sol(raise.releasedAmount)} / ${sol(payable)} SOL`;
     });
   }
   const finalA = await A.fetch();
@@ -172,7 +209,11 @@ async function main() {
       state: stateName(finalA.state),
       fundedSol: sol(finalA.fundedAmount),
       releasedSol: sol(finalA.releasedAmount),
+      payableSol: sol(new BN(finalA.fundedAmount.toString()).muln(10_000 - finalA.floorReserveBps).divn(10_000)),
       feesSol: sol(finalA.feesCollected),
+      floorSpentSol: sol(finalA.floorSpent),
+      tokensBurned: finalA.tokensBurned.toString(),
+      treasuryNowSol: sol(await oc.tokenBalance(A.treasuryQuote)),
       steps: st.a.steps.map((s) => ({ ...s, link: link(s.sig) })),
     },
     raiseB: {
@@ -192,7 +233,7 @@ async function main() {
     ``,
     `## Raise A · camino feliz`,
     ``,
-    `Tesorería [\`${A.treasury.toBase58()}\`](${addr(A.treasury)}) · financiado ${result.raiseA.fundedSol} SOL · liberado al equipo ${result.raiseA.releasedSol} SOL · comisiones cobradas ${result.raiseA.feesSol} SOL · estado final **${result.raiseA.state}**.`,
+    `Tesorería [\`${A.treasury.toBase58()}\`](${addr(A.treasury)}) · financiado ${result.raiseA.fundedSol} SOL · liberado al equipo en 3 tramos con evidencia ${result.raiseA.releasedSol} SOL (todo lo cobrable: ${result.raiseA.payableSol}) · comisiones cobradas ${result.raiseA.feesSol} SOL · defensa del piso ${result.raiseA.floorSpentSol} SOL · la tesorería conserva ${result.raiseA.treasuryNowSol} SOL de respaldo para los holders · estado final **${result.raiseA.state}**.`,
     ``,
     `| Paso | Resultado | Transacción |`,
     `| --- | --- | --- |`,
@@ -210,10 +251,10 @@ async function main() {
   fs.mkdirSync("docs", { recursive: true });
   fs.writeFileSync(`docs/DEMO-${net.cluster}.md`, md);
 
-  const okA = result.raiseA.state === "completed" && result.raiseA.releasedSol === result.raiseA.fundedSol;
+  const okA = result.raiseA.state === "completed" && result.raiseA.releasedSol === result.raiseA.payableSol;
   const okB = result.raiseB.state === "liquidating";
   if (!okA || !okB) throw new Error(`Demo incompleta: A=${result.raiseA.state} B=${result.raiseB.state}`);
-  console.log(`\n  PUERTA F3 SUPERADA: ciclo completo en ${net.cluster} (A completado, B en liquidación).`);
+  console.log(`\n  DEMO OK: ciclo completo en ${net.cluster} (A completado con piso defendido, B en liquidación).`);
   console.log(`  Resumen para jueces: docs/DEMO-${net.cluster}.md`);
 }
 

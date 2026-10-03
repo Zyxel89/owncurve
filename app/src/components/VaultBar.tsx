@@ -34,7 +34,12 @@ export function VaultBar({ state, raise, curve, treasuryPct, clockSkew = 0 }: Pr
     );
   }
 
-  const funded = new BN(raise.fundedAmount.toString());
+  // Los tramos reparten lo cobrable; la reserva del piso nunca va al equipo.
+  const fundedAll = new BN(raise.fundedAmount.toString());
+  const floorBps = Number(raise.floorReserveBps ?? 0);
+  const floorAmount = fundedAll.muln(floorBps).divn(10_000);
+  const funded = fundedAll.sub(floorAmount);
+  const width = (bps: number) => (bps * (10_000 - floorBps)) / 10_000;
   const count = Number(raise.milestoneCount);
   const ms = raise.milestones.slice(0, count) as any[];
   let paidSoFar = new BN(0);
@@ -57,13 +62,14 @@ export function VaultBar({ state, raise, curve, treasuryPct, clockSkew = 0 }: Pr
           <div
             key={s.i}
             className={`seg ${state === "liquidating" && s.status !== "released" ? "returned" : s.status}`}
-            style={{ flexGrow: s.bps }}
+            style={{ flexGrow: width(s.bps) }}
           />
         ))}
+        {floorBps > 0 && <div className="seg floor" style={{ flexGrow: floorBps }} />}
       </div>
       <ol className="seg-labels">
         {segments.map((s) => (
-          <li key={s.i} style={{ flexGrow: s.bps }}>
+          <li key={s.i} style={{ flexGrow: width(s.bps) }}>
             <span className="amt">{fmtSol(s.amount)} SOL</span>
             <span className="what">
               Tranche {s.i + 1}, {s.bps / 100}%:{" "}
@@ -79,6 +85,12 @@ export function VaultBar({ state, raise, curve, treasuryPct, clockSkew = 0 }: Pr
             </span>
           </li>
         ))}
+        {floorBps > 0 && (
+          <li className="floor" style={{ flexGrow: floorBps }}>
+            <span className="amt">{fmtSol(floorAmount)} SOL</span>
+            <span className="what">Price floor reserve: never paid to the team</span>
+          </li>
+        )}
       </ol>
     </figure>
   );
