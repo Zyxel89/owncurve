@@ -16,7 +16,7 @@ and burn it.
 ## Setup
 
 ```bash
-git clone https://github.com/owncurve/owncurve && cd owncurve && npm ci
+git clone https://github.com/Zyxel89/owncurve && cd owncurve && npm ci
 export RPC_URL=https://api.devnet.solana.com   # any devnet RPC
 export WALLET=~/.config/solana/id.json          # keypair that signs
 npx tsx scripts/cli.ts help

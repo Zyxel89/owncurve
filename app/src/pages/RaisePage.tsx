@@ -92,7 +92,7 @@ export function RaisePage({ config }: { config: string }) {
           </div>
           <div>
             <dt>Treasury backing per 1,000,000 tokens</dt>
-            <dd>{d.navPerMillion.toFixed(4)} SOL</dd>
+            <dd>{d.navPerMillion >= 0.01 ? d.navPerMillion.toFixed(4) : d.navPerMillion.toPrecision(3)} SOL</dd>
           </div>
         </dl>
       )}

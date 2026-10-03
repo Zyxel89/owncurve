@@ -23,6 +23,26 @@ Two things no other launchpad does on-chain:
 
 Built for the Colosseum Crypto World's Fair — "Best use of Meteora's DBC" sidetrack.
 
+## Try it
+
+- **Live app (Solana devnet):** https://zyxel89.github.io/owncurve/ — click **Use a test wallet**, or connect Phantom / Solflare / Backpack set to devnet.
+- **A raise that paid its team in 3 evidence-backed tranches and defended its price floor:** https://zyxel89.github.io/owncurve/#/raise/__RAISE_A__
+- **A raise whose holders stopped the payment and redeemed the treasury:** https://zyxel89.github.io/owncurve/#/raise/__RAISE_B__
+- **Every devnet transaction, step by step:** [`docs/DEMO-devnet.md`](docs/DEMO-devnet.md)
+- **Agent Skill:** [`skills/owncurve/SKILL.md`](skills/owncurve/SKILL.md)
+
+```
+OwnCurve program (Anchor 1.2)                Meteora
+┌──────────────────────────────┐   CPI   ┌───────────────────────────────┐
+│ Raise + treasury PDA         │ ──────▶ │ DBC: withdraw_migration_fee,  │
+│  tranches · objections       │         │      claim_trading_fee,        │
+│  floor reserve · evidence    │         │      partner_withdraw_surplus  │
+│                              │ ──────▶ │ DAMM v2: claim_position_fee,  │
+│ defend_floor: buy ≤ backing, │         │          swap (buyback)        │
+│ then burn                    │         └───────────────────────────────┘
+└──────────────────────────────┘
+```
+
 ## Lifecycle
 
 ```

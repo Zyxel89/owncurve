@@ -9,3 +9,4 @@ local/
 .deps/
 app/dist/
 app/.env.local
+owncurve.sh

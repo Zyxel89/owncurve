@@ -67,7 +67,14 @@ h2 {
 code,
 .addr {
   font: inherit;
-  word-break: break-all;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+.flash.faucet {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
 }
 .muted {
   color: var(--ink-soft);

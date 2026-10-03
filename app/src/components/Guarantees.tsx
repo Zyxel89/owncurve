@@ -57,8 +57,8 @@ export function Guarantees({ d }: { d: RaiseDetail }) {
       <p className="fine">
         Treasury account{" "}
         {link ? (
-          <a className="addr" href={link} target="_blank" rel="noreferrer">
-            {treasury.toBase58()}
+          <a className="addr" href={link} target="_blank" rel="noreferrer" title={treasury.toBase58()}>
+            {treasury.toBase58().slice(0, 10)}…{treasury.toBase58().slice(-10)}
           </a>
         ) : (
           <span className="addr">{treasury.toBase58()}</span>

@@ -27,8 +27,11 @@ export function App() {
       {hash === "#/new" ? <Create /> : raise ? <RaisePage config={raise[1]} /> : <Home />}
       <footer className="foot">
         <p>
-          OwnCurve runs on Meteora's Dynamic Bonding Curve and DAMM v2. Open source, MIT licensed. Built for the Colosseum
-          Crypto World's Fair.
+          OwnCurve runs on Meteora's Dynamic Bonding Curve and DAMM v2.{" "}
+          <a href="https://github.com/Zyxel89/owncurve" target="_blank" rel="noreferrer">
+            Open source
+          </a>
+          , MIT licensed. Built for the Colosseum Crypto World's Fair.
         </p>
       </footer>
     </AccountProvider>

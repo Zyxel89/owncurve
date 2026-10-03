@@ -614,7 +614,7 @@ export class OwnCurve {
 
   // ---------------------------------------------------------------- gobernanza
   async propose(r: Raise, team = this.net.payer, ev?: Evidence) {
-    const e = ev ?? (await evidence("https://github.com/owncurve/owncurve/releases"));
+    const e = ev ?? (await evidence("https://github.com/Zyxel89/owncurve/blob/main/docs/MILESTONES.md"));
     const ix = await this.m
       .proposeRelease(e.uri, e.hash)
       .accountsStrict({ team: team.publicKey, raise: r.raise })

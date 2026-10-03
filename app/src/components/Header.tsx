@@ -9,6 +9,8 @@ export function Header() {
   const adapter = useWallet();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [faucetHelp, setFaucetHelp] = useState(false);
+  const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!msg) return;
     const id = setTimeout(() => setMsg(null), 6000);
@@ -19,11 +21,13 @@ export function Header() {
   const airdrop = async () => {
     setBusy(true);
     setMsg(null);
+    setFaucetHelp(false);
     try {
       await acc.requestSol();
       setMsg("1 devnet SOL added.");
     } catch (e) {
-      setMsg(`The devnet faucet refused (${explainError(e)}). Try faucet.solana.com.`);
+      console.warn("airdrop", explainError(e));
+      setFaucetHelp(true);
     } finally {
       setBusy(false);
     }
@@ -73,6 +77,25 @@ export function Header() {
         </div>
       </div>
       {msg && <p className="flash">{msg}</p>}
+      {faucetHelp && acc.signer && (
+        <div className="flash faucet" role="alert">
+          <span>The automatic devnet faucet is busy. Get free devnet SOL for this test wallet in two steps:</span>
+          <button
+            className="btn quiet"
+            onClick={() => {
+              navigator.clipboard?.writeText(acc.signer!.publicKey.toBase58()).then(() => setCopied(true));
+            }}
+          >
+            {copied ? "Address copied" : "1. Copy my address"}
+          </button>
+          <a className="btn quiet" href="https://faucet.solana.com" target="_blank" rel="noreferrer">
+            2. Open faucet.solana.com
+          </a>
+          <button className="btn quiet" aria-label="Close" onClick={() => setFaucetHelp(false)}>
+            ✕
+          </button>
+        </div>
+      )}
     </header>
   );
 }

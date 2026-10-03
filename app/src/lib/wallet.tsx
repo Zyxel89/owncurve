@@ -87,8 +87,17 @@ function Inner({ children }: { children: ReactNode }) {
 
   const requestSol = useCallback(async () => {
     if (!signer) return;
-    const sig = await conn.requestAirdrop(signer.publicKey, 1 * LAMPORTS_PER_SOL);
-    await confirm(conn, sig, "Airdrop");
+    try {
+      const sig = await conn.requestAirdrop(signer.publicKey, 1 * LAMPORTS_PER_SOL);
+      await confirm(conn, sig, "Airdrop");
+    } catch (e) {
+      // Muchas RPC privadas no hacen airdrops: probamos el faucet público de devnet.
+      const PUBLIC = "https://api.devnet.solana.com";
+      if (CLUSTER !== "devnet" || (conn as any).rpcEndpoint === PUBLIC) throw e;
+      const pub = new Connection(PUBLIC, "confirmed");
+      const sig = await pub.requestAirdrop(signer.publicKey, 1 * LAMPORTS_PER_SOL);
+      await confirm(pub, sig, "Airdrop");
+    }
     setTick((t) => t + 1);
   }, [conn, signer]);
 

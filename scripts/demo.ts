@@ -19,10 +19,10 @@ import { DEFAULT_PARAMS, OwnCurve, Raise, RaiseParams, evidence, stateName } fro
 
 type Step = { name: string; sig?: string; note?: string };
 type RaiseState = { config: number[]; baseMint: number[]; nftMints?: string[]; steps: Step[] };
-type DemoState = { version?: number; programId: string; voter: number[]; a: RaiseState; b: RaiseState };
+type DemoState = { version?: number; evidenceBase?: string; programId: string; voter: number[]; a: RaiseState; b: RaiseState };
 // v2: piso de precio + evidencia por tramo (las cuentas Raise cambiaron de tamaño)
 const DEMO_VERSION = 2;
-const EVIDENCE_BASE = process.env.EVIDENCE_BASE ?? "https://github.com/owncurve/owncurve";
+const EVIDENCE_BASE = process.env.EVIDENCE_BASE ?? "https://github.com/Zyxel89/owncurve";
 const MILESTONES = [
   "M1 · on-chain program: treasury, tranches, objections, redemption",
   "M2 · price floor: treasury buys back below backing and burns",
@@ -52,9 +52,10 @@ async function main() {
   const file = `.owncurve/demo-${net.cluster}.json`;
   let st: DemoState | null =
     net.cluster === "devnet" && fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
-  if (st && (st.programId !== oc.programId.toBase58() || st.version !== DEMO_VERSION)) st = null;
+  if (st && (st.programId !== oc.programId.toBase58() || st.version !== DEMO_VERSION || st.evidenceBase !== EVIDENCE_BASE)) st = null;
   st ??= {
     version: DEMO_VERSION,
+    evidenceBase: EVIDENCE_BASE,
     programId: oc.programId.toBase58(),
     voter: Array.from(Keypair.generate().secretKey),
     a: newRaiseState(),
