@@ -13,7 +13,7 @@
 import { BN } from "@anchor-lang/core";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import fs from "fs";
-import { TxError, makeNet } from "./lib/net";
+import { TxError, loadIdl, makeNet } from "./lib/net";
 import { DEFAULT_PARAMS, OwnCurve, Raise, RaiseParams, stateName } from "./lib/owncurve";
 
 type Step = { name: string; sig?: string; note?: string };
@@ -30,7 +30,7 @@ const newRaiseState = (): RaiseState => ({
 
 async function main() {
   const net = await makeNet();
-  const oc = new OwnCurve(net);
+  const oc = new OwnCurve(net, loadIdl());
   const payer = net.payer.publicKey;
   const prog = await net.conn.getAccountInfo(oc.programId);
   if (!prog?.executable) throw new Error(`El programa ${oc.programId.toBase58()} no está desplegado en ${net.cluster}`);

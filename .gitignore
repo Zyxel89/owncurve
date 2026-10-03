@@ -6,3 +6,5 @@ test-ledger/
 .owncurve/
 local/
 .deps/
+app/dist/
+app/.env.local

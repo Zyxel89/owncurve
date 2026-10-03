@@ -7,7 +7,7 @@ import { SwapMode } from "@meteora-ag/dynamic-bonding-curve-sdk";
 import { Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { makeNet } from "../scripts/lib/net";
+import { loadIdl, makeNet } from "../scripts/lib/net";
 import { DEFAULT_PARAMS, OwnCurve, Raise, RaiseParams, stateName } from "../scripts/lib/owncurve";
 
 process.env.CLUSTER = "local";
@@ -15,7 +15,7 @@ process.env.CLUSTER = "local";
 // ------------------------------------------------------------------ utilidades
 async function setup(params: Partial<RaiseParams> = {}) {
   const net = await makeNet();
-  const oc = new OwnCurve(net);
+  const oc = new OwnCurve(net, loadIdl());
   return { net, oc, p: { ...DEFAULT_PARAMS, ...params } };
 }
 

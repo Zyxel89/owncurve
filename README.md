@@ -58,6 +58,18 @@ Any time after launch: collect_trading_fees, collect_surplus, claim_lp_fees -> t
 Program `GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh`: a full raise was created, bought to
 graduation, harvested (0.4 SOL = 80% of 0.5 SOL into the treasury PDA) and migrated to DAMM v2.
 
+## Web app
+
+`app/` is a Vite + React front end that reuses the same client as the scripts (`scripts/lib/owncurve.ts`).
+It lists every raise, draws the treasury as a vault split into tranches, shows the guarantees that
+`bind_pool` checked on-chain, and lets anyone buy, object, settle and redeem. Connect a browser wallet
+(Phantom, Solflare, Backpack…) or click **Use a test wallet** to try it on devnet without installing anything.
+
+```
+npm run app            # http://localhost:5173 (devnet; set VITE_RPC_URL in app/.env.local)
+npm run e2e            # Chromium drives the whole lifecycle against LiteSVM with the real programs
+```
+
 ## Build and test
 
 ```

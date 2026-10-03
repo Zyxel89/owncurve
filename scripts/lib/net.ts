@@ -221,3 +221,8 @@ class SvmConnection {
     return { context: this.ctx(), value: { amount: amount.toString(), decimals: 9, uiAmount: Number(amount) / 1e9 } };
   }
 }
+
+/** Carga el IDL compilado (solo Node). */
+export function loadIdl(path = "target/idl/owncurve.json") {
+  return JSON.parse(fs.readFileSync(path, "utf8"));
+}

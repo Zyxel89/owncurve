@@ -13,7 +13,7 @@ import { BN } from "@anchor-lang/core";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import fs from "fs";
 import { DEFAULT_PARAMS, OwnCurve, Raise, ps, stateName } from "./lib/owncurve";
-import { TxError, makeNet } from "./lib/net";
+import { TxError, loadIdl, makeNet } from "./lib/net";
 
 const DO_MIGRATE = process.argv.includes("--migrate");
 const PARAMS = { ...DEFAULT_PARAMS, thresholdSol: Number(process.env.THRESHOLD_SOL ?? DEFAULT_PARAMS.thresholdSol) };
@@ -26,7 +26,7 @@ const kp = (s: number[]) => Keypair.fromSecretKey(Uint8Array.from(s));
 
 async function main() {
   const net = await makeNet();
-  const oc = new OwnCurve(net);
+  const oc = new OwnCurve(net, loadIdl());
   const payer = net.payer.publicKey;
 
   console.log(`\n  Red        : ${net.cluster}`);

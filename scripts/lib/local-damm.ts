@@ -4,7 +4,7 @@
 import { BN } from "@anchor-lang/core";
 import { createDammV2Program, deriveDbcPoolAuthority } from "@meteora-ag/dynamic-bonding-curve-sdk";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
-import { Net } from "./net";
+import type { Net } from "./net";
 
 const DAMM_V2 = new PublicKey("cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG");
 

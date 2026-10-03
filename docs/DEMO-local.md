@@ -4,38 +4,38 @@ Programa: [`GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh`](GBHTxatkmbAX5U7G65yXz
 
 ## Raise A · camino feliz
 
-Tesorería [`59VaU1nPwF3gxj8aS2LqB9WHnwAfGmaTaEhhXjTRm7Yv`](59VaU1nPwF3gxj8aS2LqB9WHnwAfGmaTaEhhXjTRm7Yv) · financiado 0.4000 SOL · liberado al equipo 0.4000 SOL · comisiones cobradas 0.0042 SOL · estado final **completed**.
+Tesorería [`3Vmx4kHtCXVMdyCrps8bQLaKsmAZmx9uiq3PPRwd8q3y`](3Vmx4kHtCXVMdyCrps8bQLaKsmAZmx9uiq3PPRwd8q3y) · financiado 0.4000 SOL · liberado al equipo 0.4000 SOL · comisiones cobradas 0.0042 SOL · estado final **completed**.
 
 | Paso | Resultado | Transacción |
 | --- | --- | --- |
-| A1 crear raise + config DBC |  | [ver](local:b401914d6a563752) |
-| A2 lanzar pool + bind_pool |  | [ver](local:d80c188037878b82) |
-| A3 comprar hasta graduar | reserva 0.5000 SOL | [ver](local:5d4d9110ae0553d6) |
-| A4 harvest | tesorería 0.4000 SOL | [ver](local:ec9c961b40420334) |
-| A5 cobrar comisiones curva | +0.0040 SOL | [ver](local:317e8b21e3b684aa) |
-| A6 migrar a DAMM v2 |  | [ver](local:57ef98daacc1538a) |
-| A7 swap en DAMM v2 |  | [ver](local:8b951e4f1b0ec6ab) |
-| A8 cobrar comisiones de LP | fees totales 0.0042 SOL | [ver](local:d87062065370a118) |
-| A9.1 proponer tramo 1 |  | [ver](local:75437db7d0ff642a) |
-| A9.1 finalizar tramo 1 | liberado 0.1200 / 0.4000 SOL | [ver](local:a243a1d3a864d2ca) |
-| A9.2 proponer tramo 2 |  | [ver](local:cabb21cc46b4c2ae) |
-| A9.2 finalizar tramo 2 | liberado 0.2400 / 0.4000 SOL | [ver](local:af53fd3003a4fb65) |
-| A9.3 proponer tramo 3 |  | [ver](local:0b8530a34b9a9e55) |
-| A9.3 finalizar tramo 3 | liberado 0.4000 / 0.4000 SOL | [ver](local:ef9e3fe22dc23186) |
+| A1 crear raise + config DBC |  | [ver](local:d96ed6dcc1e5b9f4) |
+| A2 lanzar pool + bind_pool |  | [ver](local:daca7829d132787f) |
+| A3 comprar hasta graduar | reserva 0.5000 SOL | [ver](local:64937d2e207704bd) |
+| A4 harvest | tesorería 0.4000 SOL | [ver](local:1239e43715307240) |
+| A5 cobrar comisiones curva | +0.0040 SOL | [ver](local:75ec6f8eb71e0432) |
+| A6 migrar a DAMM v2 |  | [ver](local:1942708cc9e178a9) |
+| A7 swap en DAMM v2 |  | [ver](local:2840c4edd60d874e) |
+| A8 cobrar comisiones de LP | fees totales 0.0042 SOL | [ver](local:dc5f34962954c136) |
+| A9.1 proponer tramo 1 |  | [ver](local:b572152cd1a39565) |
+| A9.1 finalizar tramo 1 | liberado 0.1200 / 0.4000 SOL | [ver](local:2903dfdc72a6c937) |
+| A9.2 proponer tramo 2 |  | [ver](local:a563bba3634a0b0d) |
+| A9.2 finalizar tramo 2 | liberado 0.2400 / 0.4000 SOL | [ver](local:4968e2597ce5efdb) |
+| A9.3 proponer tramo 3 |  | [ver](local:c0a0324b2b023a1f) |
+| A9.3 finalizar tramo 3 | liberado 0.4000 / 0.4000 SOL | [ver](local:6e47fd04386c9974) |
 
 ## Raise B · rechazo y liquidación
 
-Tesorería [`9Kek3VrDM7nMAyMwiPk6La24xUQxfiBNoLFfYsdY51hG`](9Kek3VrDM7nMAyMwiPk6La24xUQxfiBNoLFfYsdY51hG) · financiado 0.2400 SOL · estado final **liquidating**: el equipo no cobró nada y los holders redimen contra la tesorería.
+Tesorería [`CLJfyKaMG38b3dSgtCCxgwSo8YQkhAKJ9FPk7HLQ59Zu`](CLJfyKaMG38b3dSgtCCxgwSo8YQkhAKJ9FPk7HLQ59Zu) · financiado 0.2400 SOL · estado final **liquidating**: el equipo no cobró nada y los holders redimen contra la tesorería.
 
 | Paso | Resultado | Transacción |
 | --- | --- | --- |
-| B1 crear raise + config DBC |  | [ver](local:3739e9c0b95fd57e) |
-| B2 lanzar pool + bind_pool |  | [ver](local:edb8ec0e0de10e39) |
-| B3 comprar hasta graduar |  | [ver](local:104436cc79a91672) |
-| B4 harvest | tesorería 0.2400 SOL | [ver](local:dae9c58588397622) |
-| B6 holder recibe 15% del suministro |  | [ver](local:6b4648075d7f1e04) |
-| B7 equipo propone tramo 1 |  | [ver](local:a44b10ab33894c77) |
-| B8 holder vota rechazo | bloqueados 150000000000000 tokens (base units) | [ver](local:181be1a9a90bf479) |
-| B10 finalizar → liquidación | estado "liquidating" | [ver](local:32e05526d9ba32d5) |
-| B11 holder retira su voto |  | [ver](local:baccc194a4dcf151) |
-| B12 holder redime por SOL | recibió 0.0360 SOL (wSOL) por sus tokens | [ver](local:65346cdbaecc10fc) |
+| B1 crear raise + config DBC |  | [ver](local:242f4c9d122e9286) |
+| B2 lanzar pool + bind_pool |  | [ver](local:e815f55b70ff16f2) |
+| B3 comprar hasta graduar |  | [ver](local:bd288920a9976288) |
+| B4 harvest | tesorería 0.2400 SOL | [ver](local:46d7268e1a9bc5bd) |
+| B6 holder recibe 15% del suministro |  | [ver](local:355ab8f2ae389ee2) |
+| B7 equipo propone tramo 1 |  | [ver](local:9ba4e5c1226e8e47) |
+| B8 holder vota rechazo | bloqueados 150000000000000 tokens (base units) | [ver](local:3d3ec27bac3a1b1f) |
+| B10 finalizar → liquidación | estado "liquidating" | [ver](local:67cae562b19f83fc) |
+| B11 holder retira su voto |  | [ver](local:9d078defa69416e4) |
+| B12 holder redime por SOL | recibió 0.0360 SOL (wSOL) por sus tokens | [ver](local:fff6ee347a12b32c) |

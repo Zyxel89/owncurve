@@ -36,9 +36,8 @@ import {
   getAssociatedTokenAddressSync,
 } from "@solana/spl-token";
 import { Keypair, PublicKey, SystemProgram, TransactionInstruction } from "@solana/web3.js";
-import fs from "fs";
 import { createLocalDammV2Config } from "./local-damm";
-import { Net } from "./net";
+import type { Net } from "./net";
 
 export const DBC = new PublicKey("dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN");
 export const DAMM_V2 = new PublicKey("cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG");
@@ -181,10 +180,16 @@ export class OwnCurve {
   readonly dbc: DynamicBondingCurveClient;
   readonly programId: PublicKey;
 
-  constructor(readonly net: Net, idlPath = "target/idl/owncurve.json") {
-    const idl = JSON.parse(fs.readFileSync(idlPath, "utf8"));
+  constructor(readonly net: Net, idl: any) {
     this.programId = new PublicKey(idl.address);
-    const provider = new AnchorProvider(net.conn, new Wallet(net.payer), { commitment: "confirmed" });
+    // Solo construimos instrucciones (nunca .rpc()), así que el "wallet" del provider
+    // no firma nada: basta con la clave pública. Funciona igual en Node y en el navegador.
+    const wallet = {
+      publicKey: net.payer.publicKey,
+      signTransaction: async (t: any) => t,
+      signAllTransactions: async (t: any) => t,
+    } as unknown as Wallet;
+    const provider = new AnchorProvider(net.conn, wallet, { commitment: "confirmed" });
     this.program = new Program(idl, provider) as Program<any>;
     this.dbc = new DynamicBondingCurveClient(net.conn, "confirmed");
   }
@@ -230,16 +235,24 @@ export class OwnCurve {
   }
 
   /** create_pool de DBC + bind_pool en UNA transacción: el launch nace validado. */
-  async launchPool(config: PublicKey, baseMintKp = Keypair.generate(), team = this.net.payer, withPool = true) {
+  async launchPool(
+    config: PublicKey,
+    baseMintKp = Keypair.generate(),
+    team = this.net.payer,
+    withPool = true,
+    meta: { name: string; symbol: string; uri: string } = {
+      name: "OwnCurve Demo",
+      symbol: "OWND",
+      uri: "https://raw.githubusercontent.com/solana-developers/opos-asset/main/assets/DeveloperPortal/metadata.json",
+    },
+  ) {
     const r = new Raise(this, config, baseMintKp.publicKey);
     const ixs: TransactionInstruction[] = [];
     if (withPool && !(await this.net.conn.getAccountInfo(r.pool))) {
       const createPool = await this.dbc.creator.createPool({
         baseMint: baseMintKp.publicKey,
         config,
-        name: "OwnCurve Demo",
-        symbol: "OWND",
-        uri: "https://raw.githubusercontent.com/solana-developers/opos-asset/main/assets/DeveloperPortal/metadata.json",
+        ...meta,
         payer: this.payer,
         poolCreator: team.publicKey,
       });
