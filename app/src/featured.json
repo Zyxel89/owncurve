@@ -1,0 +1,17 @@
+{
+  "featured": [
+    {
+      "config": "7sDbgBXGy6o5AWs6NpCUG8EfuRCTBqzKG8SNZ8Prb7Ra",
+      "label": "Demo · floor defended",
+      "blurb": "Paid its team in 3 evidence-backed tranches. After a panic sell, the treasury bought tokens back below their backing and burned them."
+    },
+    {
+      "config": "ERrfcHfstYDDgamvvRYS3XDkJ2LmZk8Dei6sMhSQV9tW",
+      "label": "Demo · holders said no",
+      "blurb": "Holders objected to the first tranche with quorum: the team got nothing and the treasury became a redemption pool."
+    }
+  ],
+  "testTeams": [
+    "AGxjAiwu6MQRvSXVz6CXzSU2uESZivyxBVdapJvPU514"
+  ]
+}

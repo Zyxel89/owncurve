@@ -2,6 +2,7 @@ import { BN } from "@anchor-lang/core";
 import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import { useMemo, useState } from "react";
 import { OwnCurve, evidence, stateName } from "../../../scripts/lib/owncurve";
+import featuredCfg from "../featured.json";
 import { Guarantees } from "../components/Guarantees";
 import { VaultBar, fmtLeft } from "../components/VaultBar";
 import { makeBrowserNet } from "../lib/browserNet";
@@ -32,6 +33,7 @@ export function RaisePage({ config }: { config: string }) {
   if (error && !d) return <main className="page"><p className="error">Could not load this raise: {error}</p></main>;
   if (!d) return <main className="page"><p className="muted">Reading the raise from the chain…</p></main>;
 
+  const featuredLabel = (featuredCfg.featured as { config: string; label: string }[]).find((f) => f.config === config)?.label;
   const treasuryPct = d.cfg?.migrationFeePercentage ?? d.raise.minTreasuryPct;
   return (
     <main className="page raise">
@@ -39,6 +41,7 @@ export function RaisePage({ config }: { config: string }) {
         <div>
           <p className="crumb">
             <a href="#/">Raises</a>
+            {featuredLabel && <span className="kicker"> · {featuredLabel}</span>}
           </p>
           <h1>
             {d.name} <span className="sym">{d.symbol}</span>

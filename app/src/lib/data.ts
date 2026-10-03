@@ -53,6 +53,7 @@ export type RaiseRow = {
   treasurySol: number;
   progress: number | null; // 0..1 mientras está en la curva
   fundedSol: number;
+  team: string;
 };
 
 export async function listRaises(oc: OwnCurve): Promise<RaiseRow[]> {
@@ -97,6 +98,7 @@ export async function listRaises(oc: OwnCurve): Promise<RaiseRow[]> {
         treasurySol: lamportsToSol(treasury),
         progress,
         fundedSol: lamportsToSol(account.fundedAmount),
+        team: new PublicKey(account.team).toBase58(),
       };
     }),
   );
