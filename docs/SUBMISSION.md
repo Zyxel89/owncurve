@@ -4,8 +4,8 @@ Links (fill in automatically by `owncurve.sh`):
 
 - Repo: https://github.com/Zyxel89/owncurve
 - Live app (devnet): https://zyxel89.github.io/owncurve/
-- Demo raise A (tranches + floor): https://zyxel89.github.io/owncurve/#/raise/__RAISE_A__
-- Demo raise B (rejected → redemptions): https://zyxel89.github.io/owncurve/#/raise/__RAISE_B__
+- Demo raise A (tranches + floor): https://zyxel89.github.io/owncurve/#/raise/7sDbgBXGy6o5AWs6NpCUG8EfuRCTBqzKG8SNZ8Prb7Ra
+- Demo raise B (rejected → redemptions): https://zyxel89.github.io/owncurve/#/raise/ERrfcHfstYDDgamvvRYS3XDkJ2LmZk8Dei6sMhSQV9tW
 - Program (devnet): https://explorer.solana.com/address/GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh?cluster=devnet
 - Video: (YouTube/Loom link)
 

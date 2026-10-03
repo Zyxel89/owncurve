@@ -26,8 +26,8 @@ Built for the Colosseum Crypto World's Fair — "Best use of Meteora's DBC" side
 ## Try it
 
 - **Live app (Solana devnet):** https://zyxel89.github.io/owncurve/ — click **Use a test wallet**, or connect Phantom / Solflare / Backpack set to devnet.
-- **A raise that paid its team in 3 evidence-backed tranches and defended its price floor:** https://zyxel89.github.io/owncurve/#/raise/__RAISE_A__
-- **A raise whose holders stopped the payment and redeemed the treasury:** https://zyxel89.github.io/owncurve/#/raise/__RAISE_B__
+- **A raise that paid its team in 3 evidence-backed tranches and defended its price floor:** https://zyxel89.github.io/owncurve/#/raise/7sDbgBXGy6o5AWs6NpCUG8EfuRCTBqzKG8SNZ8Prb7Ra
+- **A raise whose holders stopped the payment and redeemed the treasury:** https://zyxel89.github.io/owncurve/#/raise/ERrfcHfstYDDgamvvRYS3XDkJ2LmZk8Dei6sMhSQV9tW
 - **Every devnet transaction, step by step:** [`docs/DEMO-devnet.md`](docs/DEMO-devnet.md)
 - **Agent Skill:** [`skills/owncurve/SKILL.md`](skills/owncurve/SKILL.md)
 
