@@ -22,6 +22,10 @@ pub enum OwnCurveError {
     TreasuryShareTooLow,
     #[msg("DBC pool creator must be the raise team")]
     PoolCreatorNotTeam,
+    #[msg("Creator LP must be 100% permanently locked (no unlocked or vesting LP)")]
+    CreatorLpNotLocked,
+    #[msg("DBC config must not give the mint authority to the creator")]
+    CreatorMintAuthority,
     #[msg("Bonding curve has not completed yet")]
     CurveNotComplete,
     #[msg("Only the team can do this")]

@@ -6,6 +6,12 @@ pub const ESCROW_SEED: &[u8] = b"escrow";
 pub const VOTE_SEED: &[u8] = b"vote";
 
 pub const MAX_MILESTONES: usize = 5;
+/// Governance guard-rails a team cannot opt out of.
+pub const MIN_TREASURY_PCT: u8 = 50; // at least half of the raise backs the token
+pub const MIN_CHALLENGE_WINDOW: i64 = 60; // seconds holders always get to react
+pub const MAX_REJECT_QUORUM_BPS: u16 = 3_000; // blocking a tranche never needs more than 30%
+/// DBC `TokenAuthorityOption::CreatorUpdateAndMintAuthority`.
+pub const DBC_CREATOR_MINT_AUTHORITY: u8 = 3;
 pub const BPS: u64 = 10_000;
 
 /// Lifecycle of a raise.
@@ -58,6 +64,9 @@ pub struct Raise {
     pub funded_amount: u64,
     /// Quote amount already released to the team.
     pub released_amount: u64,
+    /// Extra quote collected after funding: DBC partner trading fees, partner surplus and
+    /// DAMM v2 LP fees of the treasury-owned position. Never released to the team: it backs NAV.
+    pub fees_collected: u64,
 
     pub milestones: [Milestone; MAX_MILESTONES],
     pub milestone_count: u8,

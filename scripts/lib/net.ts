@@ -4,6 +4,7 @@ import {
   Connection,
   Keypair,
   PublicKey,
+  SystemProgram,
   Transaction,
   TransactionInstruction,
   ComputeBudgetProgram,
@@ -19,6 +20,10 @@ export type Net = {
   payer: Keypair;
   send: (label: string, ixs: TransactionInstruction[], signers: Keypair[]) => Promise<string>;
   explorer: (sig: string) => string;
+  /** local: adelanta el reloj del validador; devnet: espera de verdad. */
+  advanceTime: (secs: number) => Promise<void>;
+  /** local: airdrop; devnet: transferencia desde la wallet principal. */
+  fund: (to: PublicKey, lamports: number) => Promise<void>;
   svm?: any;
 };
 
@@ -69,6 +74,10 @@ export async function makeNet(): Promise<Net> {
     payer,
     send,
     explorer: (sig) => `https://explorer.solana.com/tx/${sig}?cluster=devnet`,
+    advanceTime: (secs) => new Promise((r) => setTimeout(r, (secs + 2) * 1000)),
+    fund: async (to, lamports) => {
+      await send("fondear", [SystemProgram.transfer({ fromPubkey: payer.publicKey, toPubkey: to, lamports })], []);
+    },
   };
 }
 
@@ -147,7 +156,16 @@ async function makeLocal(): Promise<Net> {
     }
     return Buffer.from(tx.signature!).toString("hex").slice(0, 16);
   };
-  return { cluster: "local", conn, payer, send, explorer: (s) => `local:${s}`, svm };
+  const advanceTime = async (secs: number) => {
+    const c = svm.getClock();
+    c.unixTimestamp = c.unixTimestamp + BigInt(secs);
+    c.slot = c.slot + BigInt(Math.max(1, Math.ceil(secs * 2.5)));
+    svm.setClock(c);
+  };
+  const fund = async (to: PublicKey, lamports: number) => {
+    svm.airdrop(to, BigInt(lamports));
+  };
+  return { cluster: "local", conn, payer, send, explorer: (s) => `local:${s}`, advanceTime, fund, svm };
 }
 
 // Lo mínimo de Connection que usan Anchor y el SDK de DBC, respaldado por LiteSVM.
@@ -157,7 +175,8 @@ class SvmConnection {
   constructor(private svm: any) {}
   private info(pk: PublicKey) {
     const a = this.svm.getAccount(pk);
-    if (!a) return null;
+    // LiteSVM devuelve las cuentas cerradas como vacías; una RPC real devuelve null.
+    if (!a || (Number(a.lamports) === 0 && a.data.length === 0)) return null;
     return {
       data: Buffer.from(a.data),
       executable: a.executable,

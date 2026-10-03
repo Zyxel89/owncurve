@@ -40,12 +40,12 @@ pub mod owncurve {
         let sum: u64 = params.tranche_bps.iter().map(|b| *b as u64).sum();
         require!(sum == BPS, OwnCurveError::InvalidMilestones);
         require!(
-            params.min_treasury_pct >= 1 && params.min_treasury_pct <= 99,
+            params.min_treasury_pct >= MIN_TREASURY_PCT && params.min_treasury_pct <= 99,
             OwnCurveError::InvalidGovernance
         );
-        require!(params.challenge_window > 0, OwnCurveError::InvalidGovernance);
+        require!(params.challenge_window >= MIN_CHALLENGE_WINDOW, OwnCurveError::InvalidGovernance);
         require!(
-            params.reject_quorum_bps > 0 && params.reject_quorum_bps as u64 <= BPS,
+            params.reject_quorum_bps > 0 && params.reject_quorum_bps <= MAX_REJECT_QUORUM_BPS,
             OwnCurveError::InvalidGovernance
         );
 
@@ -94,6 +94,18 @@ pub mod owncurve {
         require!(
             config.migration_fee_percentage >= raise.min_treasury_pct,
             OwnCurveError::TreasuryShareTooLow
+        );
+        // Anti-rug: the team must not be able to pull graduated liquidity out of DAMM v2.
+        // (Partner LP is owned by the treasury PDA, which has no instruction to remove it.)
+        require!(
+            config.creator_liquidity_percentage == 0
+                && config.creator_liquidity_vesting_info.vesting_percentage == 0,
+            OwnCurveError::CreatorLpNotLocked
+        );
+        // Anti-rug: no infinite mint for the team (only possible on transfer-hook configs).
+        require!(
+            config.token_update_authority != DBC_CREATOR_MINT_AUTHORITY,
+            OwnCurveError::CreatorMintAuthority
         );
 
         let pool_loader = PoolAccountLoader::try_from(&pool_info)
@@ -148,6 +160,105 @@ pub mod owncurve {
         raise.funded_amount = raised;
         raise.state = RaiseState::Funded;
         Ok(())
+    }
+
+    /// Permissionless: pulls the partner share of DBC trading fees into the treasury.
+    pub fn collect_trading_fees(ctx: Context<CollectTradingFees>) -> Result<()> {
+        require!(ctx.accounts.raise.state != RaiseState::Pending, OwnCurveError::InvalidState);
+        let before = ctx.accounts.treasury_quote.amount;
+        let config_key = ctx.accounts.raise.dbc_config;
+        let seeds: &[&[u8]] = &[TREASURY_SEED, config_key.as_ref(), &[ctx.accounts.raise.treasury_bump]];
+
+        let cpi_accounts = dynamic_bonding_curve::cpi::accounts::ClaimTradingFeesCtx {
+            pool_authority: ctx.accounts.dbc_pool_authority.to_account_info(),
+            config: ctx.accounts.dbc_config.to_account_info(),
+            pool: ctx.accounts.dbc_pool.to_account_info(),
+            token_a_account: ctx.accounts.treasury_base.to_account_info(),
+            token_b_account: ctx.accounts.treasury_quote.to_account_info(),
+            base_vault: ctx.accounts.dbc_base_vault.to_account_info(),
+            quote_vault: ctx.accounts.dbc_quote_vault.to_account_info(),
+            base_mint: ctx.accounts.base_mint.to_account_info(),
+            quote_mint: ctx.accounts.quote_mint.to_account_info(),
+            fee_claimer: ctx.accounts.treasury.to_account_info(),
+            token_base_program: ctx.accounts.base_token_program.to_account_info(),
+            token_quote_program: ctx.accounts.quote_token_program.to_account_info(),
+            event_authority: ctx.accounts.dbc_event_authority.to_account_info(),
+            program: ctx.accounts.dbc_program.to_account_info(),
+        };
+        dynamic_bonding_curve::cpi::claim_trading_fee(
+            CpiContext::new_with_signer(ctx.accounts.dbc_program.key(), cpi_accounts, &[seeds]),
+            u64::MAX,
+            u64::MAX,
+        )?;
+        add_collected(&mut ctx.accounts.raise, &mut ctx.accounts.treasury_quote, before)
+    }
+
+    /// Permissionless: if the last buy overshot the threshold, pulls the partner surplus.
+    pub fn collect_surplus(ctx: Context<CollectSurplus>) -> Result<()> {
+        require!(
+            ctx.accounts.raise.state != RaiseState::Pending
+                && ctx.accounts.raise.state != RaiseState::Bonding,
+            OwnCurveError::InvalidState
+        );
+        let before = ctx.accounts.treasury_quote.amount;
+        let config_key = ctx.accounts.raise.dbc_config;
+        let seeds: &[&[u8]] = &[TREASURY_SEED, config_key.as_ref(), &[ctx.accounts.raise.treasury_bump]];
+
+        let cpi_accounts = dynamic_bonding_curve::cpi::accounts::PartnerWithdrawSurplusCtx {
+            pool_authority: ctx.accounts.dbc_pool_authority.to_account_info(),
+            config: ctx.accounts.dbc_config.to_account_info(),
+            virtual_pool: ctx.accounts.dbc_pool.to_account_info(),
+            token_quote_account: ctx.accounts.treasury_quote.to_account_info(),
+            quote_vault: ctx.accounts.dbc_quote_vault.to_account_info(),
+            quote_mint: ctx.accounts.quote_mint.to_account_info(),
+            fee_claimer: ctx.accounts.treasury.to_account_info(),
+            token_quote_program: ctx.accounts.quote_token_program.to_account_info(),
+            event_authority: ctx.accounts.dbc_event_authority.to_account_info(),
+            program: ctx.accounts.dbc_program.to_account_info(),
+        };
+        dynamic_bonding_curve::cpi::partner_withdraw_surplus(CpiContext::new_with_signer(
+            ctx.accounts.dbc_program.key(),
+            cpi_accounts,
+            &[seeds],
+        ))?;
+        add_collected(&mut ctx.accounts.raise, &mut ctx.accounts.treasury_quote, before)
+    }
+
+    /// Permissionless: after migration, claims the LP fees of the DAMM v2 position that DBC
+    /// minted to the partner (= the treasury). The treasury earns trading fees forever.
+    pub fn claim_lp_fees(ctx: Context<ClaimLpFees>) -> Result<()> {
+        require!(
+            ctx.accounts.raise.state != RaiseState::Pending
+                && ctx.accounts.raise.state != RaiseState::Bonding,
+            OwnCurveError::InvalidState
+        );
+        let before = ctx.accounts.treasury_quote.amount;
+        let config_key = ctx.accounts.raise.dbc_config;
+        let seeds: &[&[u8]] = &[TREASURY_SEED, config_key.as_ref(), &[ctx.accounts.raise.treasury_bump]];
+
+        let cpi_accounts = damm_v2::cpi::accounts::ClaimPositionFee {
+            pool_authority: ctx.accounts.damm_pool_authority.to_account_info(),
+            pool: ctx.accounts.damm_pool.to_account_info(),
+            position: ctx.accounts.position.to_account_info(),
+            token_a_account: ctx.accounts.treasury_base.to_account_info(),
+            token_b_account: ctx.accounts.treasury_quote.to_account_info(),
+            token_a_vault: ctx.accounts.damm_base_vault.to_account_info(),
+            token_b_vault: ctx.accounts.damm_quote_vault.to_account_info(),
+            token_a_mint: ctx.accounts.base_mint.to_account_info(),
+            token_b_mint: ctx.accounts.quote_mint.to_account_info(),
+            position_nft_account: ctx.accounts.position_nft_account.to_account_info(),
+            signer: ctx.accounts.treasury.to_account_info(),
+            token_a_program: ctx.accounts.base_token_program.to_account_info(),
+            token_b_program: ctx.accounts.quote_token_program.to_account_info(),
+            event_authority: ctx.accounts.damm_event_authority.to_account_info(),
+            program: ctx.accounts.damm_program.to_account_info(),
+        };
+        damm_v2::cpi::claim_position_fee(CpiContext::new_with_signer(
+            ctx.accounts.damm_program.key(),
+            cpi_accounts,
+            &[seeds],
+        ))?;
+        add_collected(&mut ctx.accounts.raise, &mut ctx.accounts.treasury_quote, before)
     }
 
     /// Team proposes releasing the next milestone tranche; opens the challenge window.
@@ -360,6 +471,18 @@ pub mod owncurve {
     }
 }
 
+/// Adds the quote that just landed in the treasury to `fees_collected`.
+fn add_collected<'info>(
+    raise: &mut Account<'info, Raise>,
+    treasury_quote: &mut InterfaceAccount<'info, TokenAccount>,
+    before: u64,
+) -> Result<()> {
+    treasury_quote.reload()?;
+    let delta = treasury_quote.amount.checked_sub(before).ok_or(OwnCurveError::MathOverflow)?;
+    raise.fees_collected = raise.fees_collected.checked_add(delta).ok_or(OwnCurveError::MathOverflow)?;
+    Ok(())
+}
+
 /// Supply that has a claim on the treasury: total minus tokens the treasury itself holds
 /// (DBC leftover). Tokens inside the DAMM v2 pool still count — documented MVP trade-off.
 fn circulating_supply(total: u64, treasury_held: u64) -> u64 {
@@ -436,6 +559,115 @@ pub struct Harvest<'info> {
     /// CHECK: address-checked
     #[account(address = dynamic_bonding_curve::ID)]
     pub dbc_program: UncheckedAccount<'info>,
+    pub quote_token_program: Interface<'info, TokenInterface>,
+}
+
+/// Treasury token accounts + mints shared by every fee-collecting instruction.
+/// Destinations are pinned to the treasury, so nobody can redirect what is collected.
+#[derive(Accounts)]
+pub struct CollectTradingFees<'info> {
+    #[account(mut, seeds = [RAISE_SEED, raise.dbc_config.as_ref()], bump = raise.bump)]
+    pub raise: Box<Account<'info, Raise>>,
+    /// CHECK: PDA signer for the DBC CPI
+    #[account(seeds = [TREASURY_SEED, raise.dbc_config.as_ref()], bump = raise.treasury_bump)]
+    pub treasury: UncheckedAccount<'info>,
+    #[account(mut, token::mint = base_mint, token::authority = treasury, token::token_program = base_token_program)]
+    pub treasury_base: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut, token::mint = quote_mint, token::authority = treasury, token::token_program = quote_token_program)]
+    pub treasury_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(address = raise.base_mint)]
+    pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = raise.quote_mint)]
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
+    /// CHECK: validated by DBC
+    pub dbc_pool_authority: UncheckedAccount<'info>,
+    /// CHECK: validated by DBC
+    #[account(address = raise.dbc_config)]
+    pub dbc_config: UncheckedAccount<'info>,
+    /// CHECK: validated by DBC
+    #[account(mut, address = raise.dbc_pool)]
+    pub dbc_pool: UncheckedAccount<'info>,
+    /// CHECK: validated by DBC
+    #[account(mut)]
+    pub dbc_base_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by DBC
+    #[account(mut)]
+    pub dbc_quote_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by DBC
+    pub dbc_event_authority: UncheckedAccount<'info>,
+    /// CHECK: address-checked
+    #[account(address = dynamic_bonding_curve::ID)]
+    pub dbc_program: UncheckedAccount<'info>,
+    pub base_token_program: Interface<'info, TokenInterface>,
+    pub quote_token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
+pub struct CollectSurplus<'info> {
+    #[account(mut, seeds = [RAISE_SEED, raise.dbc_config.as_ref()], bump = raise.bump)]
+    pub raise: Box<Account<'info, Raise>>,
+    /// CHECK: PDA signer for the DBC CPI
+    #[account(seeds = [TREASURY_SEED, raise.dbc_config.as_ref()], bump = raise.treasury_bump)]
+    pub treasury: UncheckedAccount<'info>,
+    #[account(mut, token::mint = quote_mint, token::authority = treasury, token::token_program = quote_token_program)]
+    pub treasury_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(address = raise.quote_mint)]
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
+    /// CHECK: validated by DBC
+    pub dbc_pool_authority: UncheckedAccount<'info>,
+    /// CHECK: validated by DBC
+    #[account(address = raise.dbc_config)]
+    pub dbc_config: UncheckedAccount<'info>,
+    /// CHECK: validated by DBC
+    #[account(mut, address = raise.dbc_pool)]
+    pub dbc_pool: UncheckedAccount<'info>,
+    /// CHECK: validated by DBC
+    #[account(mut)]
+    pub dbc_quote_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by DBC
+    pub dbc_event_authority: UncheckedAccount<'info>,
+    /// CHECK: address-checked
+    #[account(address = dynamic_bonding_curve::ID)]
+    pub dbc_program: UncheckedAccount<'info>,
+    pub quote_token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
+pub struct ClaimLpFees<'info> {
+    #[account(mut, seeds = [RAISE_SEED, raise.dbc_config.as_ref()], bump = raise.bump)]
+    pub raise: Box<Account<'info, Raise>>,
+    /// CHECK: PDA signer (owner of the DAMM v2 position NFT)
+    #[account(seeds = [TREASURY_SEED, raise.dbc_config.as_ref()], bump = raise.treasury_bump)]
+    pub treasury: UncheckedAccount<'info>,
+    #[account(mut, token::mint = base_mint, token::authority = treasury, token::token_program = base_token_program)]
+    pub treasury_base: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut, token::mint = quote_mint, token::authority = treasury, token::token_program = quote_token_program)]
+    pub treasury_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(address = raise.base_mint)]
+    pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = raise.quote_mint)]
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
+    /// CHECK: validated by DAMM v2
+    pub damm_pool_authority: UncheckedAccount<'info>,
+    /// CHECK: validated by DAMM v2 (vaults and mints must match the pool)
+    pub damm_pool: UncheckedAccount<'info>,
+    /// CHECK: validated by DAMM v2
+    #[account(mut)]
+    pub position: UncheckedAccount<'info>,
+    /// CHECK: validated by DAMM v2
+    #[account(mut)]
+    pub damm_base_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by DAMM v2
+    #[account(mut)]
+    pub damm_quote_vault: UncheckedAccount<'info>,
+    /// CHECK: validated by DAMM v2 (must be held by the treasury)
+    pub position_nft_account: UncheckedAccount<'info>,
+    /// CHECK: validated by DAMM v2
+    pub damm_event_authority: UncheckedAccount<'info>,
+    /// CHECK: address-checked
+    #[account(address = damm_v2::ID)]
+    pub damm_program: UncheckedAccount<'info>,
+    pub base_token_program: Interface<'info, TokenInterface>,
     pub quote_token_program: Interface<'info, TokenInterface>,
 }
 
