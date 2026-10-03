@@ -1,0 +1,21 @@
+{
+  "name": "owncurve",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "f1": "tsx scripts/f1.ts",
+    "f1:local": "CLUSTER=local tsx scripts/f1.ts"
+  },
+  "dependencies": {
+    "@anchor-lang/core": "1.2.0",
+    "@meteora-ag/dynamic-bonding-curve-sdk": "1.5.12",
+    "@solana/spl-token": "0.4.15",
+    "@solana/web3.js": "1.99.0",
+    "bn.js": "5.2.5"
+  },
+  "devDependencies": {
+    "litesvm": "0.1.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3"
+  }
+}
