@@ -15,11 +15,12 @@ import { BN } from "@anchor-lang/core";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import fs from "fs";
 import { TxError, loadIdl, makeNet } from "./lib/net";
-import { DEFAULT_PARAMS, OwnCurve, Raise, RaiseParams, evidence, stateName } from "./lib/owncurve";
+import { DEFAULT_PARAMS, OwnCurve, Quote, Raise, RaiseParams, evidence, stateName } from "./lib/owncurve";
+import { TEST_QUOTES, createTestQuote, devnetFaucet, mintTestQuoteIxs, testQuoteKeypair } from "./lib/quotes";
 
 type Step = { name: string; sig?: string; note?: string };
 type RaiseState = { config: number[]; baseMint: number[]; nftMints?: string[]; steps: Step[] };
-type DemoState = { version?: number; evidenceBase?: string; programId: string; voter: number[]; a: RaiseState; b: RaiseState };
+type DemoState = { version?: number; evidenceBase?: string; programId: string; voter: number[]; a: RaiseState; b: RaiseState; c?: RaiseState; d?: RaiseState };
 // v2: piso de precio + evidencia por tramo (las cuentas Raise cambiaron de tamaño)
 const DEMO_VERSION = 2;
 const EVIDENCE_BASE = process.env.EVIDENCE_BASE ?? "https://github.com/Zyxel89/owncurve";
@@ -61,6 +62,8 @@ async function main() {
     a: newRaiseState(),
     b: newRaiseState(),
   };
+  st.c ??= newRaiseState();
+  st.d ??= newRaiseState();
   const save = () => {
     fs.mkdirSync(".owncurve", { recursive: true });
     if (net.cluster === "devnet") fs.writeFileSync(file, JSON.stringify(st, null, 2));
@@ -96,7 +99,7 @@ async function main() {
 
   // ================================================================ RAISE A
   console.log(`\n  ── Raise A · camino feliz ─────────────────────────────`);
-  const pA: RaiseParams = { ...DEFAULT_PARAMS, thresholdSol: Number(process.env.THRESHOLD_A ?? 0.5) };
+  const pA: RaiseParams = { ...DEFAULT_PARAMS, threshold: Number(process.env.THRESHOLD_A ?? 0.5) };
   const A = new Raise(oc, kp(st.a.config).publicKey, kp(st.a.baseMint).publicKey);
   await step(st.a, "A1 crear raise + config DBC", async () => (await oc.createRaise(pA, kp(st!.a.config))).sig);
   await step(st.a, "A2 lanzar pool + bind_pool", async () => (await oc.launchPool(A.config, kp(st!.a.baseMint))).sig);
@@ -167,7 +170,7 @@ async function main() {
 
   // ================================================================ RAISE B
   console.log(`\n  ── Raise B · rechazo y liquidación ─────────────────────`);
-  const pB: RaiseParams = { ...DEFAULT_PARAMS, thresholdSol: Number(process.env.THRESHOLD_B ?? 0.3) };
+  const pB: RaiseParams = { ...DEFAULT_PARAMS, threshold: Number(process.env.THRESHOLD_B ?? 0.3) };
   const B = new Raise(oc, kp(st.b.config).publicKey, kp(st.b.baseMint).publicKey);
   const voter = kp(st.voter);
   await step(st.b, "B1 crear raise + config DBC", async () => (await oc.createRaise(pB, kp(st!.b.config))).sig);
@@ -197,6 +200,67 @@ async function main() {
   }, async () => `recibió ${sol(redeemPaid)} SOL (wSOL) por sus tokens`);
   const finalB = await B.fetch();
 
+  // ================================================================ RAISES C y D: otras monedas
+  // Monedas de prueba con la misma dirección en todas partes; en mainnet serían USDC y una xStock.
+  const [usdSpec, stockSpec] = TEST_QUOTES;
+  const faucet = devnetFaucet();
+  const ensureQuote = async (spec: typeof usdSpec, amount: number): Promise<Quote> => {
+    const q = await createTestQuote(net, spec, testQuoteKeypair(spec.symbol), faucet.publicKey);
+    const have = await oc.tokenBalance(new Raise(oc, PublicKey.default, PublicKey.default, q.mint, q.program).quoteAta(payer));
+    if (have.lt(new BN(amount).mul(new BN(10).pow(new BN(q.decimals)))))
+      await net.send(`emitir ${spec.symbol}`, mintTestQuoteIxs(q, faucet.publicKey, payer, payer, amount * 2), [faucet]);
+    return q;
+  };
+
+  console.log(`\n  ── Raise C · recaudado en ${usdSpec.symbol} (como USDC) ───────────────`);
+  const usd = await ensureQuote(usdSpec, 150);
+  const pC: RaiseParams = { ...DEFAULT_PARAMS, threshold: 100, quote: usd };
+  const C = new Raise(oc, kp(st.c!.config).publicKey, kp(st.c!.baseMint).publicKey, usd.mint, usd.program);
+  const qsol = (q: Quote) => (v: any) => (Number(v.toString()) / 10 ** q.decimals).toFixed(2);
+  const usdFmt = qsol(usd);
+  await step(st.c!, "C1 crear raise en tUSD", async () => (await oc.createRaise(pC, kp(st!.c!.config))).sig);
+  await step(st.c!, "C2 lanzar pool + bind_pool", async () => (await oc.launchPool(C.config, kp(st!.c!.baseMint), undefined, true, { name: "Harbor Coop", symbol: "HBR", uri: "https://raw.githubusercontent.com/solana-developers/opos-asset/main/assets/DeveloperPortal/metadata.json" })).sig);
+  await step(st.c!, "C3 comprar hasta graduar", async () => (await oc.buyToComplete(C)).at(-1));
+  await step(st.c!, "C4 harvest", () => oc.harvest(C), async () => `tesorería ${usdFmt((await C.fetch()).fundedAmount)} tUSD`);
+  await step(st.c!, "C5 migrar a DAMM v2", async () => (await oc.migrate(C)).sig);
+  await step(st.c!, "C6 proponer tramo 1", async () => {
+    const raise = await C.fetch();
+    if (!raise.milestones.some((m: any) => stateName(m.status) === "proposed"))
+      return oc.propose(C, undefined, await evidence(`${EVIDENCE_BASE}/blob/main/docs/MILESTONES.md#m1`, MILESTONES[0]));
+  });
+  await step(st.c!, `C7 esperar ventana (${pC.challengeSecs}s)`, async () => net.advanceTime(pC.challengeSecs));
+  await step(st.c!, "C8 finalizar tramo 1", () => finalizeWhenReady(C), async () => `liberado ${usdFmt((await C.fetch()).releasedAmount)} tUSD`);
+  const finalC = await C.fetch();
+
+  console.log(`\n  ── Raise D · recaudado en ${stockSpec.symbol} (Token-2022, como una xStock) ──`);
+  const stock = await ensureQuote(stockSpec, 2);
+  const pD: RaiseParams = { ...DEFAULT_PARAMS, threshold: 1, quote: stock };
+  const D = new Raise(oc, kp(st.d!.config).publicKey, kp(st.d!.baseMint).publicKey, stock.mint, stock.program);
+  const stockFmt = (v: any) => (Number(v.toString()) / 10 ** stock.decimals).toFixed(4);
+  await step(st.d!, "D1 crear raise en tNVDAx", async () => (await oc.createRaise(pD, kp(st!.d!.config))).sig);
+  await step(st.d!, "D2 lanzar pool + bind_pool", async () => (await oc.launchPool(D.config, kp(st!.d!.baseMint), undefined, true, { name: "Atlas Robotics", symbol: "ATLS", uri: "https://raw.githubusercontent.com/solana-developers/opos-asset/main/assets/DeveloperPortal/metadata.json" })).sig);
+  await step(st.d!, "D3 comprar hasta graduar", async () => (await oc.buyToComplete(D)).at(-1));
+  await step(st.d!, "D4 harvest", () => oc.harvest(D), async () => `tesorería ${stockFmt((await D.fetch()).fundedAmount)} tNVDAx`);
+  await step(st.d!, "D5 migrar a DAMM v2", async () => (await oc.migrate(D)).sig);
+  await step(st.d!, "D6 venta de pánico en DAMM v2", async () => {
+    const mine = await oc.tokenBalance(D.baseAta(payer));
+    return oc.dammSell(D, mine.muln(6).divn(10));
+  });
+  let floorD = "";
+  await step(st.d!, "D7 defend_floor", async () => {
+    const amount = await oc.suggestDefend(D);
+    if (amount.isZero()) {
+      floorD = "precio ya sobre el respaldo";
+      return;
+    }
+    const before = (await oc.backing(D)).perUnit;
+    const sig = await oc.defendFloor(D, amount);
+    const after = (await oc.backing(D)).perUnit;
+    floorD = `recompró ${stockFmt(amount)} tNVDAx, respaldo +${(((after - before) / before) * 100).toFixed(0)}%`;
+    return sig;
+  }, async () => floorD);
+  const finalD = await D.fetch();
+
   // ================================================================ resumen
   const link = (s?: string) => (s ? net.explorer(s) : "");
   const addr = (a: PublicKey) =>
@@ -224,29 +288,96 @@ async function main() {
       fundedSol: sol(finalB.fundedAmount),
       steps: st.b.steps.map((s) => ({ ...s, link: link(s.sig) })),
     },
+    raiseC: {
+      config: C.config.toBase58(),
+      treasury: C.treasury.toBase58(),
+      quote: { symbol: usd.symbol, mint: usd.mint.toBase58() },
+      state: stateName(finalC.state),
+      funded: usdFmt(finalC.fundedAmount),
+      released: usdFmt(finalC.releasedAmount),
+      steps: st.c!.steps.map((s) => ({ ...s, link: link(s.sig) })),
+    },
+    raiseD: {
+      config: D.config.toBase58(),
+      treasury: D.treasury.toBase58(),
+      quote: { symbol: stock.symbol, mint: stock.mint.toBase58() },
+      state: stateName(finalD.state),
+      funded: stockFmt(finalD.fundedAmount),
+      floorSpent: stockFmt(finalD.floorSpent),
+      tokensBurned: finalD.tokensBurned.toString(),
+      steps: st.d!.steps.map((s) => ({ ...s, link: link(s.sig) })),
+    },
   };
   fs.writeFileSync(`.owncurve/demo-result-${net.cluster}.json`, JSON.stringify(result, null, 2));
 
+  // Informe para jueces, en inglés (los pasos internos conservan su nombre para poder reanudar).
+  const EN: [RegExp, string][] = [
+    [/crear raise \+ config DBC/, "init_raise + DBC create_config"],
+    [/crear raise en (\w+)/, "init_raise + DBC create_config (raised in $1)"],
+    [/lanzar pool \+ bind_pool/, "DBC create_pool + bind_pool (on-chain checks)"],
+    [/comprar hasta graduar/, "buy until the curve graduates"],
+    [/cobrar comisiones curva/, "collect curve trading fees (CPI)"],
+    [/migrar a DAMM v2/, "migrate to DAMM v2"],
+    [/swap en DAMM v2/, "swap on DAMM v2"],
+    [/cobrar comisiones de LP/, "claim LP fees of the treasury position (CPI)"],
+    [/venta de pánico en DAMM v2/, "panic sell on DAMM v2"],
+    [/proponer tramo (\d)/, "propose tranche $1 with evidence"],
+    [/esperar ventana \((\d+)s\)/, "wait for the $1 s objection window"],
+    [/finalizar tramo (\d)/, "settle tranche $1"],
+    [/fondear al holder/, "fund the holder"],
+    [/holder recibe 15% del suministro/, "holder receives 15% of supply"],
+    [/equipo propone tramo 1/, "team proposes tranche 1"],
+    [/holder vota rechazo/, "holder objects (locks tokens)"],
+    [/finalizar → liquidación/, "settle → liquidation"],
+    [/holder retira su voto/, "holder unlocks voted tokens"],
+    [/holder redime por SOL/, "holder redeems tokens for SOL"],
+    [/tesorería/g, "treasury"],
+    [/reserva/g, "reserve"],
+    [/fees totales/g, "total fees"],
+    [/liberado/g, "released"],
+    [/precio/g, "price"],
+    [/respaldo/g, "backing"],
+    [/recompró/g, "bought back"],
+    [/quemó/g, "burned"],
+    [/bloqueados/g, "locked"],
+    [/estado/g, "state"],
+    [/recibió (.*) por sus tokens/, "received $1 for the tokens"],
+    [/SOL\/M tokens/g, "SOL per 1M tokens"],
+  ];
+  const en = (t = "") => EN.reduce((acc, [re, rep]) => acc.replace(re, rep), t);
+  const table = (steps: { name: string; note?: string; link: string; sig?: string }[]) => [
+    `| Step | Result | Transaction |`,
+    `| --- | --- | --- |`,
+    ...steps.filter((s) => s.sig).map((s) => `| ${en(s.name)} | ${en(s.note)} | [view](${s.link}) |`),
+  ];
   const md = [
-    `# OwnCurve · demo en ${net.cluster}`,
+    `# OwnCurve · ${net.cluster} demo`,
     ``,
-    `Programa: [\`${oc.programId.toBase58()}\`](${addr(oc.programId)})`,
+    `Program: [\`${oc.programId.toBase58()}\`](${addr(oc.programId)}) · every transaction below is real and links to the explorer.`,
     ``,
-    `## Raise A · camino feliz`,
+    `## Raise A · tranches with evidence + price floor (SOL)`,
     ``,
-    `Tesorería [\`${A.treasury.toBase58()}\`](${addr(A.treasury)}) · financiado ${result.raiseA.fundedSol} SOL · liberado al equipo en 3 tramos con evidencia ${result.raiseA.releasedSol} SOL (todo lo cobrable: ${result.raiseA.payableSol}) · comisiones cobradas ${result.raiseA.feesSol} SOL · defensa del piso ${result.raiseA.floorSpentSol} SOL · la tesorería conserva ${result.raiseA.treasuryNowSol} SOL de respaldo para los holders · estado final **${result.raiseA.state}**.`,
+    `Treasury [\`${A.treasury.toBase58()}\`](${addr(A.treasury)}) · funded ${result.raiseA.fundedSol} SOL · paid to the team in 3 evidence-backed tranches ${result.raiseA.releasedSol} SOL (all of the payable ${result.raiseA.payableSol}) · fees collected ${result.raiseA.feesSol} SOL · floor defense ${result.raiseA.floorSpentSol} SOL · the treasury still holds ${result.raiseA.treasuryNowSol} SOL of backing for holders · final state **${result.raiseA.state}**.`,
     ``,
-    `| Paso | Resultado | Transacción |`,
-    `| --- | --- | --- |`,
-    ...result.raiseA.steps.filter((s) => s.sig).map((s) => `| ${s.name} | ${s.note ?? ""} | [ver](${s.link}) |`),
+    ...table(result.raiseA.steps),
     ``,
-    `## Raise B · rechazo y liquidación`,
+    `## Raise B · holders stop a tranche → liquidation → redemption (SOL)`,
     ``,
-    `Tesorería [\`${B.treasury.toBase58()}\`](${addr(B.treasury)}) · financiado ${result.raiseB.fundedSol} SOL · estado final **${result.raiseB.state}**: el equipo no cobró nada y los holders redimen contra la tesorería.`,
+    `Treasury [\`${B.treasury.toBase58()}\`](${addr(B.treasury)}) · funded ${result.raiseB.fundedSol} SOL · final state **${result.raiseB.state}**: the team got nothing and holders redeem against the treasury.`,
     ``,
-    `| Paso | Resultado | Transacción |`,
-    `| --- | --- | --- |`,
-    ...result.raiseB.steps.filter((s) => s.sig).map((s) => `| ${s.name} | ${s.note ?? ""} | [ver](${s.link}) |`),
+    ...table(result.raiseB.steps),
+    ``,
+    `## Raise C · raised in a stablecoin (${usd.symbol}, SPL token like USDC)`,
+    ``,
+    `Currency [\`${usd.mint.toBase58()}\`](${addr(usd.mint)}) (devnet test token) · treasury [\`${C.treasury.toBase58()}\`](${addr(C.treasury)}) · funded ${result.raiseC.funded} ${usd.symbol} · tranche 1 paid ${result.raiseC.released} ${usd.symbol}.`,
+    ``,
+    ...table(result.raiseC.steps),
+    ``,
+    `## Raise D · raised in a tokenized stock (${stock.symbol}, Token-2022 like xStocks)`,
+    ``,
+    `Currency [\`${stock.mint.toBase58()}\`](${addr(stock.mint)}) (devnet test token) · treasury [\`${D.treasury.toBase58()}\`](${addr(D.treasury)}) · funded ${result.raiseD.funded} ${stock.symbol} · floor defense ${result.raiseD.floorSpent} ${stock.symbol}.`,
+    ``,
+    ...table(result.raiseD.steps),
     ``,
   ].join("\n");
   fs.mkdirSync("docs", { recursive: true });
@@ -254,8 +385,11 @@ async function main() {
 
   const okA = result.raiseA.state === "completed" && result.raiseA.releasedSol === result.raiseA.payableSol;
   const okB = result.raiseB.state === "liquidating";
-  if (!okA || !okB) throw new Error(`Demo incompleta: A=${result.raiseA.state} B=${result.raiseB.state}`);
-  console.log(`\n  DEMO OK: ciclo completo en ${net.cluster} (A completado con piso defendido, B en liquidación).`);
+  const okC = Number(result.raiseC.released) > 0;
+  const okD = ["funded", "completed"].includes(result.raiseD.state);
+  if (!okA || !okB || !okC || !okD)
+    throw new Error(`Demo incompleta: A=${result.raiseA.state} B=${result.raiseB.state} C=${result.raiseC.released} D=${result.raiseD.state}`);
+  console.log(`\n  DEMO OK: ciclo completo en ${net.cluster} (A completado con piso defendido, B en liquidación, C en tUSD, D en tNVDAx).`);
   console.log(`  Resumen para jueces: docs/DEMO-${net.cluster}.md`);
 }
 

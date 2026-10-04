@@ -1,43 +1,71 @@
-# OwnCurve · demo en local
+# OwnCurve · local demo
 
-Programa: [`GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh`](GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh)
+Program: [`GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh`](GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh) · every transaction below is real and links to the explorer.
 
-## Raise A · camino feliz
+## Raise A · tranches with evidence + price floor (SOL)
 
-Tesorería [`91Sqg5d5snzbHgE1aRmceiNFFqRBYsfWFxGcxTtyvmF1`](91Sqg5d5snzbHgE1aRmceiNFFqRBYsfWFxGcxTtyvmF1) · financiado 0.4000 SOL · liberado al equipo en 3 tramos con evidencia 0.3200 SOL (todo lo cobrable: 0.3200) · comisiones cobradas 0.0042 SOL · defensa del piso 0.0396 SOL · la tesorería conserva 0.0446 SOL de respaldo para los holders · estado final **completed**.
+Treasury [`GD1SDhcZy8pkThdT8z5U21EPuWEMHcbXRmjP78TC4wCa`](GD1SDhcZy8pkThdT8z5U21EPuWEMHcbXRmjP78TC4wCa) · funded 0.4000 SOL · paid to the team in 3 evidence-backed tranches 0.3200 SOL (all of the payable 0.3200) · fees collected 0.0042 SOL · floor defense 0.0396 SOL · the treasury still holds 0.0446 SOL of backing for holders · final state **completed**.
 
-| Paso | Resultado | Transacción |
+| Step | Result | Transaction |
 | --- | --- | --- |
-| A1 crear raise + config DBC |  | [ver](local:5a105120c6872966) |
-| A2 lanzar pool + bind_pool |  | [ver](local:12b9217f1b0cf8f9) |
-| A3 comprar hasta graduar | reserva 0.5000 SOL | [ver](local:8df424bb96a12bc3) |
-| A4 harvest | tesorería 0.4000 SOL | [ver](local:c26553755b7e55fa) |
-| A5 cobrar comisiones curva | +0.0040 SOL | [ver](local:ae25dc7fdea5081f) |
-| A6 migrar a DAMM v2 |  | [ver](local:99895fb5eb09dcec) |
-| A7 swap en DAMM v2 |  | [ver](local:2f11a475f47643a1) |
-| A8 cobrar comisiones de LP | fees totales 0.0042 SOL | [ver](local:3988e6bb9b128bd3) |
-| A8b venta de pánico en DAMM v2 | precio 0.0000203 vs respaldo 0.000404 SOL/M tokens | [ver](local:80ed921edf18068a) |
-| A8c defend_floor | recompró 0.0396 SOL, quemó 473,177,901 tokens, respaldo +71% | [ver](local:c56407c8fe4624aa) |
-| A9.1 proponer tramo 1 |  | [ver](local:beae36fec3f651fa) |
-| A9.1 finalizar tramo 1 | liberado 0.0960 / 0.3200 SOL | [ver](local:a88bf3df891ac68f) |
-| A9.2 proponer tramo 2 |  | [ver](local:559eef80e0550ffc) |
-| A9.2 finalizar tramo 2 | liberado 0.1920 / 0.3200 SOL | [ver](local:7bc302dc4278800a) |
-| A9.3 proponer tramo 3 |  | [ver](local:4716ad1265b61ccc) |
-| A9.3 finalizar tramo 3 | liberado 0.3200 / 0.3200 SOL | [ver](local:10fc7277bfd838bc) |
+| A1 init_raise + DBC create_config |  | [view](local:456e6b74f03aa413) |
+| A2 DBC create_pool + bind_pool (on-chain checks) |  | [view](local:e71351a2f79dfec6) |
+| A3 buy until the curve graduates | reserve 0.5000 SOL | [view](local:24e0137cf6865d0b) |
+| A4 harvest | treasury 0.4000 SOL | [view](local:0944296c991ad4c7) |
+| A5 collect curve trading fees (CPI) | +0.0040 SOL | [view](local:7853461a358be260) |
+| A6 migrate to DAMM v2 |  | [view](local:051724532e44c6e2) |
+| A7 swap on DAMM v2 |  | [view](local:d64c6643ed622400) |
+| A8 claim LP fees of the treasury position (CPI) | total fees 0.0042 SOL | [view](local:fd0077a197758ed8) |
+| A8b panic sell on DAMM v2 | price 0.0000203 vs backing 0.000404 SOL per 1M tokens | [view](local:490de28bda254119) |
+| A8c defend_floor | bought back 0.0396 SOL, burned 473,177,901 tokens, backing +71% | [view](local:e9fef7348c345452) |
+| A9.1 propose tranche 1 with evidence |  | [view](local:c005b06737552be2) |
+| A9.1 settle tranche 1 | released 0.0960 / 0.3200 SOL | [view](local:26174a9af65df6f8) |
+| A9.2 propose tranche 2 with evidence |  | [view](local:a8753cda52100d2a) |
+| A9.2 settle tranche 2 | released 0.1920 / 0.3200 SOL | [view](local:3d26c8aee5f5db5b) |
+| A9.3 propose tranche 3 with evidence |  | [view](local:73268064ad530303) |
+| A9.3 settle tranche 3 | released 0.3200 / 0.3200 SOL | [view](local:7959e64fa948bbd2) |
 
-## Raise B · rechazo y liquidación
+## Raise B · holders stop a tranche → liquidation → redemption (SOL)
 
-Tesorería [`AbbNsuTG4U6yAkMBe2kbt4vT7ZfLBDYSgbvWmoohUR7k`](AbbNsuTG4U6yAkMBe2kbt4vT7ZfLBDYSgbvWmoohUR7k) · financiado 0.2400 SOL · estado final **liquidating**: el equipo no cobró nada y los holders redimen contra la tesorería.
+Treasury [`3gQNXuZCJSiXA9u9azamdojQFixnGd1o86hvjaig63LR`](3gQNXuZCJSiXA9u9azamdojQFixnGd1o86hvjaig63LR) · funded 0.2400 SOL · final state **liquidating**: the team got nothing and holders redeem against the treasury.
 
-| Paso | Resultado | Transacción |
+| Step | Result | Transaction |
 | --- | --- | --- |
-| B1 crear raise + config DBC |  | [ver](local:85fe1c2fd4936f30) |
-| B2 lanzar pool + bind_pool |  | [ver](local:29bcb90358b72fe9) |
-| B3 comprar hasta graduar |  | [ver](local:bfc2daeae9841b90) |
-| B4 harvest | tesorería 0.2400 SOL | [ver](local:b1ad3e684bfee074) |
-| B6 holder recibe 15% del suministro |  | [ver](local:d5a5716006edaf01) |
-| B7 equipo propone tramo 1 |  | [ver](local:cc0b63a449e0e953) |
-| B8 holder vota rechazo | bloqueados 150000000000000 tokens (base units) | [ver](local:17d4003e48a37303) |
-| B10 finalizar → liquidación | estado "liquidating" | [ver](local:ba939bc3de039c8e) |
-| B11 holder retira su voto |  | [ver](local:a300799b495f834a) |
-| B12 holder redime por SOL | recibió 0.0360 SOL (wSOL) por sus tokens | [ver](local:8c67edf28685f5b2) |
+| B1 init_raise + DBC create_config |  | [view](local:370a56d819b962c0) |
+| B2 DBC create_pool + bind_pool (on-chain checks) |  | [view](local:2767d2f4d17ae967) |
+| B3 buy until the curve graduates |  | [view](local:7e44f0e01c318db1) |
+| B4 harvest | treasury 0.2400 SOL | [view](local:b07135a7336f606e) |
+| B6 holder receives 15% of supply |  | [view](local:b23f0cf41f61f847) |
+| B7 team proposes tranche 1 |  | [view](local:85c02f3a680bf2f7) |
+| B8 holder objects (locks tokens) | locked 150000000000000 tokens (base units) | [view](local:ceb18855b9e99de1) |
+| B10 settle → liquidation | state "liquidating" | [view](local:7785c0bcef546ad4) |
+| B11 holder unlocks voted tokens |  | [view](local:3f81bafa23afd85a) |
+| B12 holder redeems tokens for SOL | received 0.0360 SOL (wSOL) for the tokens | [view](local:630c69e2e22705b8) |
+
+## Raise C · raised in a stablecoin (tUSD, SPL token like USDC)
+
+Currency [`F3PFEkHmAzyCt19fihMjg1YRZCg6ucGdJxEY3Ask83W5`](F3PFEkHmAzyCt19fihMjg1YRZCg6ucGdJxEY3Ask83W5) (devnet test token) · treasury [`6peaMqRKKJa5nK8y6mwrKdNjskU6QFEgj65XWuB4dhcu`](6peaMqRKKJa5nK8y6mwrKdNjskU6QFEgj65XWuB4dhcu) · funded 80.00 tUSD · tranche 1 paid 19.20 tUSD.
+
+| Step | Result | Transaction |
+| --- | --- | --- |
+| C1 init_raise + DBC create_config (raised in tUSD) |  | [view](local:d4ddaf170336b31d) |
+| C2 DBC create_pool + bind_pool (on-chain checks) |  | [view](local:a9df1b9ac83589dd) |
+| C3 buy until the curve graduates |  | [view](local:0cc6d0734431162d) |
+| C4 harvest | treasury 80.00 tUSD | [view](local:974f9c7fadcc32b2) |
+| C5 migrate to DAMM v2 |  | [view](local:88095d5dba42874c) |
+| C6 propose tranche 1 with evidence |  | [view](local:dd8d535086913e50) |
+| C8 settle tranche 1 | released 19.20 tUSD | [view](local:1a2134ec123f01d1) |
+
+## Raise D · raised in a tokenized stock (tNVDAx, Token-2022 like xStocks)
+
+Currency [`CJxpbdZ6XrGv4umpkfAaJV183B4odUq22pqrrF83cEDp`](CJxpbdZ6XrGv4umpkfAaJV183B4odUq22pqrrF83cEDp) (devnet test token) · treasury [`2c5zgyRgEgNg1FsTkENn4tsAupz51WGsXWsbqokPaJTq`](2c5zgyRgEgNg1FsTkENn4tsAupz51WGsXWsbqokPaJTq) · funded 0.8000 tNVDAx · floor defense 0.0789 tNVDAx.
+
+| Step | Result | Transaction |
+| --- | --- | --- |
+| D1 init_raise + DBC create_config (raised in tNVDAx) |  | [view](local:ccaa3290512265f6) |
+| D2 DBC create_pool + bind_pool (on-chain checks) |  | [view](local:2f427e455ebd0b71) |
+| D3 buy until the curve graduates |  | [view](local:0671a608c251a322) |
+| D4 harvest | treasury 0.8000 tNVDAx | [view](local:0711a7412aa97ef8) |
+| D5 migrate to DAMM v2 |  | [view](local:3a5cf2e7ecd47b8b) |
+| D6 panic sell on DAMM v2 |  | [view](local:4e5a63239bc18a07) |
+| D7 defend_floor | bought back 0.0789 tNVDAx, backing +73% | [view](local:2f76429ef070a420) |

@@ -134,6 +134,26 @@ async function main() {
     step("el holder redimió sus tokens por SOL");
     await shot(holder.page, "redimido");
 
+    // 6b. Un raise en otra moneda: tUSD (como USDC), con su faucet de prueba
+    await team.page.goto(appUrl + "#/new");
+    await team.page.getByLabel("Name").fill("Harbor Coop");
+    await team.page.getByLabel("Symbol").fill("hbr");
+    await team.page.getByLabel("Currency to raise in").selectOption({ label: "tUSD · test USD stablecoin" });
+    await team.page.getByLabel("tUSD the curve raises before graduating").fill("100");
+    await team.page.getByRole("button", { name: "Launch raise" }).click();
+    await team.page.getByRole("heading", { name: /Harbor Coop/ }).waitFor({ timeout: 30_000 });
+    await team.page.getByText("of 100.000 tUSD raised on the curve").waitFor();
+    await team.page.getByRole("button", { name: /Get 1,000 tUSD/ }).click();
+    await ok(team.page, "1,000 tUSD added");
+    await team.page.getByLabel("tUSD to spend").fill("120");
+    await team.page.getByRole("button", { name: "Buy HBR" }).click();
+    await ok(team.page, "Bought HBR.");
+    await team.page.getByRole("button", { name: "Move the raise into the treasury" }).click();
+    await ok(team.page, "The treasury is funded.");
+    await team.page.getByText("80.000 tUSD").first().waitFor();
+    step("raise en tUSD: faucet de prueba, compra, tesorería financiada en tUSD");
+    await shot(team.page, "raise-tusd");
+
     // 6. La lista de inicio refleja el estado, aunque haya un raise de una versión vieja
     //    del programa (como el de la F1 en devnet, 8 bytes más corto).
     const { Keypair, PublicKey } = await import("@solana/web3.js");

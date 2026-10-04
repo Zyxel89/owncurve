@@ -650,7 +650,8 @@ label {
 small {
   color: var(--ink-soft);
 }
-input {
+input,
+select {
   font: 400 1rem var(--text);
   color: var(--ink);
   background: var(--white);
@@ -658,7 +659,8 @@ input {
   border-radius: 6px;
   padding: 10px 12px;
 }
-input:focus {
+input:focus,
+select:focus {
   border-color: var(--ink);
 }
 

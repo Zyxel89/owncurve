@@ -9,6 +9,16 @@
       "config": "ERrfcHfstYDDgamvvRYS3XDkJ2LmZk8Dei6sMhSQV9tW",
       "label": "Demo · holders said no",
       "blurb": "Holders objected to the first tranche with quorum: the team got nothing and the treasury became a redemption pool."
+    },
+    {
+      "config": "FLtDebR8xRPrLcmGTDwA1XSfn3JbFw9ts5APNrDEQW3m",
+      "label": "Demo · raised in a stablecoin",
+      "blurb": "Raised 100 tUSD, an SPL test stablecoin standing in for USDC. The treasury pays the team in tUSD."
+    },
+    {
+      "config": "FDtBpfVYe1NJKNWWiuieJueFPKfmDY6XJhJyRxjc1aQe",
+      "label": "Demo · raised in a tokenized stock",
+      "blurb": "Raised in tNVDAx, a Token-2022 test token standing in for an xStock. The floor was defended in tNVDAx."
     }
   ],
   "testTeams": [

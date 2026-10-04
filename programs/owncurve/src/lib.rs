@@ -19,6 +19,17 @@ pub mod state;
 use errors::OwnCurveError;
 use state::*;
 
+#[cfg(not(feature = "no-entrypoint"))]
+solana_security_txt::security_txt! {
+    name: "OwnCurve",
+    project_url: "https://github.com/Zyxel89/owncurve",
+    contacts: "link:https://github.com/Zyxel89/owncurve/security/advisories/new",
+    policy: "https://github.com/Zyxel89/owncurve/blob/main/SECURITY.md",
+    preferred_languages: "en,es",
+    source_code: "https://github.com/Zyxel89/owncurve",
+    auditors: "None (hackathon build, devnet only)"
+}
+
 declare_id!("GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh");
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]

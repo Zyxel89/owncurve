@@ -1,6 +1,8 @@
 import { useMemo } from "react";
 import featuredCfg from "../featured.json";
-import { RaiseRow, fmtSol, listRaises, readOnlyClient, usePoll } from "../lib/data";
+import { RaiseRow, listRaises, readOnlyClient, usePoll } from "../lib/data";
+
+const fmt = (v: number) => v.toLocaleString("en-US", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 import { useAccount } from "../lib/wallet";
 
 const STATE_LABEL: Record<string, string> = {
@@ -60,7 +62,7 @@ export function Home() {
                     <span className="meta">
                       <span className={`stage ${row.state}`}>{STATE_LABEL[row.state] ?? row.state}</span>
                       <span>
-                        {fmtSol(row.fundedSol * 1e9)} SOL raised · {fmtSol(row.treasurySol * 1e9)} SOL in treasury
+                        {fmt(row.funded)} {row.quote} raised · {fmt(row.treasury)} {row.quote} in treasury
                       </span>
                     </span>
                   </a>
@@ -118,8 +120,8 @@ function RaiseTable({ rows }: { rows: RaiseRow[] }) {
                 </span>
               )}
             </td>
-            <td className="num">{r.fundedSol > 0 ? `${fmtSol(r.fundedSol * 1e9)} SOL` : "—"}</td>
-            <td className="num">{r.treasurySol > 0 ? `${fmtSol(r.treasurySol * 1e9)} SOL` : "—"}</td>
+            <td className="num">{r.funded > 0 ? `${fmt(r.funded)} ${r.quote}` : "—"}</td>
+            <td className="num">{r.treasury > 0 ? `${fmt(r.treasury)} ${r.quote}` : "—"}</td>
           </tr>
         ))}
       </tbody>

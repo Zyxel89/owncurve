@@ -1,12 +1,13 @@
 import { BN } from "@anchor-lang/core";
-import { LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
 import { useMemo, useState } from "react";
 import { OwnCurve, evidence, stateName } from "../../../scripts/lib/owncurve";
 import featuredCfg from "../featured.json";
 import { Guarantees } from "../components/Guarantees";
 import { VaultBar, fmtLeft } from "../components/VaultBar";
 import { makeBrowserNet } from "../lib/browserNet";
-import { IDL, RaiseDetail, fmtSol, fmtTokens, loadRaise, readOnlyClient, usePoll } from "../lib/data";
+import { devnetFaucet, mintTestQuoteIxs } from "../../../scripts/lib/quotes";
+import { IDL, KNOWN_QUOTES, RaiseDetail, fmtAmt, fmtTokens, loadRaise, readOnlyClient, usePoll } from "../lib/data";
 import { useAction } from "../lib/useAction";
 import { useNow } from "../lib/useNow";
 import { short, useAccount } from "../lib/wallet";
@@ -33,6 +34,8 @@ export function RaisePage({ config }: { config: string }) {
   if (error && !d) return <main className="page"><p className="error">Could not load this raise: {error}</p></main>;
   if (!d) return <main className="page"><p className="muted">Reading the raise from the chain…</p></main>;
 
+  const fmtSol = (v: any, digits = 3) => fmtAmt(new BN(v.toString()), d.quote, digits);
+  const SYM = d.quote.symbol;
   const featuredLabel = (featuredCfg.featured as { config: string; label: string }[]).find((f) => f.config === config)?.label;
   const treasuryPct = d.cfg?.migrationFeePercentage ?? d.raise.minTreasuryPct;
   return (
@@ -50,17 +53,17 @@ export function RaisePage({ config }: { config: string }) {
         <span className={`stage big ${d.state}`}>{STATE_LABEL[d.state] ?? d.state}</span>
       </div>
 
-      <VaultBar state={d.state} raise={d.raise} curve={d.curve} treasuryPct={treasuryPct} clockSkew={d.clockSkew} />
+      <VaultBar quote={d.quote} state={d.state} raise={d.raise} curve={d.curve} treasuryPct={treasuryPct} clockSkew={d.clockSkew} />
 
       {d.state === "bonding" || d.state === "pending" ? (
         <dl className="figures">
           <div>
             <dt>Graduates at</dt>
-            <dd>{d.curve ? fmtSol(d.curve.threshold) : "—"} SOL</dd>
+            <dd>{d.curve ? fmtSol(d.curve.threshold) : "—"} {SYM}</dd>
           </div>
           <div>
             <dt>Goes to the treasury</dt>
-            <dd>{d.curve ? fmtSol(d.curve.threshold.muln(treasuryPct).divn(100)) : "—"} SOL</dd>
+            <dd>{d.curve ? fmtSol(d.curve.threshold.muln(treasuryPct).divn(100)) : "—"} {SYM}</dd>
           </div>
           <div>
             <dt>Kept as a price floor</dt>
@@ -81,21 +84,21 @@ export function RaisePage({ config }: { config: string }) {
         <dl className="figures">
           <div>
             <dt>Treasury holds</dt>
-            <dd>{fmtSol(d.treasuryQuote)} SOL</dd>
+            <dd>{fmtSol(d.treasuryQuote)} {SYM}</dd>
           </div>
           <div>
             <dt>Paid to the team</dt>
             <dd>
-              {fmtSol(d.raise.releasedAmount)} of {fmtSol(d.payable)} SOL
+              {fmtSol(d.raise.releasedAmount)} of {fmtSol(d.payable)} {SYM}
             </dd>
           </div>
           <div>
             <dt>Fees earned by the treasury</dt>
-            <dd>{fmtSol(d.raise.feesCollected, 4)} SOL</dd>
+            <dd>{fmtSol(d.raise.feesCollected, 4)} {SYM}</dd>
           </div>
           <div>
             <dt>Treasury backing per 1,000,000 tokens</dt>
-            <dd>{d.navPerMillion >= 0.01 ? d.navPerMillion.toFixed(4) : d.navPerMillion.toPrecision(3)} SOL</dd>
+            <dd>{d.navPerMillion >= 0.01 ? d.navPerMillion.toFixed(4) : d.navPerMillion.toPrecision(3)} {SYM}</dd>
           </div>
         </dl>
       )}
@@ -115,7 +118,10 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
     reload();
     acc.refreshBalance();
   });
-  const [buySol, setBuySol] = useState("0.1");
+  const [buySol, setBuySol] = useState(d.quote.decimals === 9 ? "0.1" : "10");
+  const fmtSol = (v: any, digits = 3) => fmtAmt(new BN(v.toString()), d.quote, digits);
+  const SYM = d.quote.symbol;
+  const testQuote = KNOWN_QUOTES.find((q) => q.test && q.mint.equals(d.quote.mint));
   const [evUri, setEvUri] = useState("");
   const [evNote, setEvNote] = useState("");
   const evOk = /^https?:\/\/\S+$/.test(evUri.trim()) && evUri.trim().length <= 160;
@@ -123,7 +129,7 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
 
   const me = acc.signer?.publicKey;
   const isTeam = !!me && me.equals(d.team);
-  const r = oc ? new (d.r.constructor as any)(oc, d.r.config, d.r.baseMint) : d.r;
+  const r = oc ? new (d.r.constructor as any)(oc, d.r.config, d.r.baseMint, d.r.quoteMint, d.r.quoteProgram) : d.r;
   const nonce = Number(d.raise.proposalNonce);
   const lockedVotes = d.user?.votes.filter((v) => v.nonce < nonce) ?? [];
   const activeVote = d.user?.votes.find((v) => v.nonce === nonce);
@@ -151,7 +157,7 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
       buttons.push(
         <div key="buy" className="buy">
           <label>
-            SOL to spend
+            {SYM} to spend
             <input inputMode="decimal" value={buySol} onChange={(e) => setBuySol(e.target.value)} />
           </label>
           <button
@@ -159,21 +165,38 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
             disabled={!!act.busy || !(Number(buySol) > 0)}
             onClick={() =>
               act.run("Buy on the curve", `Bought ${d.symbol}.`, () =>
-                oc.buy(r, new BN(Math.round(Number(buySol) * LAMPORTS_PER_SOL))),
+                oc.buy(r, new BN(Math.round(Number(buySol) * 10 ** d.quote.decimals).toString())),
               )
             }
           >
             {act.busy === "Buy on the curve" ? "Waiting for the network…" : `Buy ${d.symbol}`}
           </button>
+          {!d.quote.mint.equals(new PublicKey("So11111111111111111111111111111111111111112")) && (
+            <span className="fine">
+              You have {fmtSol(d.user?.quoteBal ?? 0)} {SYM}.
+            </span>
+          )}
         </div>,
       );
     }
+    if (testQuote && ["bonding", "funded", "completed"].includes(d.state))
+      btn(
+        "faucet",
+        `Get 1,000 ${SYM} (devnet test token)`,
+        `1,000 ${SYM} added to your wallet.`,
+        () =>
+          oc.net.send(
+            `Mint test ${SYM}`,
+            mintTestQuoteIxs(testQuote, devnetFaucet().publicKey, oc.net.payer.publicKey, oc.net.payer.publicKey, 1000),
+            [devnetFaucet()],
+          ),
+      );
     if (d.state === "bonding" && d.curve?.complete)
       btn("harvest", "Move the raise into the treasury", "The treasury is funded.", () => oc.harvest(r), true);
 
     if (d.state === "funded") {
       if (!d.proposal && isTeam && nextMilestone >= 0 && nextAmount) {
-        const label = `Request tranche ${nextMilestone + 1} (${fmtSol(nextAmount)} SOL)`;
+        const label = `Request tranche ${nextMilestone + 1} (${fmtSol(nextAmount)} ${SYM})`;
         buttons.push(
           <div key="propose" className="request">
             <label>
@@ -222,15 +245,15 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
     if (d.state === "liquidating" && myBase.gtn(0))
       btn(
         "redeem",
-        `Redeem my tokens for ${(redeemPreview / LAMPORTS_PER_SOL).toFixed(4)} SOL`,
-        "Redeemed. The SOL is in your wallet as wrapped SOL.",
+        `Redeem my tokens for ${(redeemPreview / 10 ** d.quote.decimals).toFixed(4)} ${SYM}`,
+        d.quote.decimals === 9 && SYM === "SOL" ? "Redeemed. The SOL is in your wallet as wrapped SOL." : `Redeemed. The ${SYM} is in your wallet.`,
         () => oc.redeem(r, oc.net.payer, myBase),
         true,
       );
     if (d.market && d.market.suggest.gtn(0))
       btn(
         "defend",
-        `Buy back below backing with ${fmtSol(d.market.suggest, 4)} SOL and burn`,
+        `Buy back below backing with ${fmtSol(d.market.suggest, 4)} ${SYM} and burn`,
         "Floor defended: the treasury bought tokens under their backing and burned them.",
         () => oc.defendFloor(r, d.market!.suggest),
         true,
@@ -309,8 +332,8 @@ function FloorPanel({ d }: { d: RaiseDetail }) {
   return (
     <div className="floor-panel" aria-label="Market price against treasury backing">
       <p>
-        <strong>Price floor.</strong> On Meteora DAMM v2, 1,000,000 {d.symbol} trade at <strong>{fmt(m.pricePerMillion)} SOL</strong>;
-        the treasury backs them with <strong>{fmt(m.backingPerMillion)} SOL</strong>.
+        <strong>Price floor.</strong> On Meteora DAMM v2, 1,000,000 {d.symbol} trade at <strong>{fmt(m.pricePerMillion)} {d.quote.symbol}</strong>;
+        the treasury backs them with <strong>{fmt(m.backingPerMillion)} {d.quote.symbol}</strong>.
       </p>
       <div className="gauge">
         <span className="backing" style={{ left: pos(m.backingPerMillion) }} title="Treasury backing" />
@@ -320,7 +343,7 @@ function FloorPanel({ d }: { d: RaiseDetail }) {
         {below
           ? "The token trades below what the treasury holds for it. Anyone can make the treasury buy it back and burn it, which lifts the backing of every remaining token."
           : "The price is above the backing. If it ever drops below, anyone can trigger a buyback that burns the tokens."}{" "}
-        Floor budget left: {fmtSol(d.floorBudget, 4)} SOL
+        Floor budget left: {fmtAmt(d.floorBudget, d.quote, 4)} {d.quote.symbol}
         {Number(d.raise.tokensBurned) > 0 ? ` · ${fmtTokens(new BN(d.raise.tokensBurned.toString()))} tokens burned so far` : ""}.
       </p>
     </div>

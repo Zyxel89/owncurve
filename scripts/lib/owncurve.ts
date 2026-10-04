@@ -43,8 +43,14 @@ export const DBC = new PublicKey("dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN");
 export const DAMM_V2 = new PublicKey("cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG");
 export const BASE_DECIMALS = 6;
 
+/** Moneda en la que se recauda (quote). SOL por defecto; cualquier SPL o Token-2022 (USDC, xStocks…). */
+export type Quote = { mint: PublicKey; program: PublicKey; decimals: number; symbol: string };
+export const SOL_QUOTE: Quote = { mint: NATIVE_MINT, program: TOKEN_PROGRAM_ID, decimals: 9, symbol: "SOL" };
+
 export type RaiseParams = {
-  thresholdSol: number;
+  /** Lo que la curva recauda antes de graduar, en unidades de la moneda (p. ej. 0.5 SOL, 100 USDC). */
+  threshold: number;
+  quote?: Quote;
   treasuryPct: number; // % de lo recaudado que va a la tesorería (migration fee)
   tranchesBps: number[];
   challengeSecs: number;
@@ -57,7 +63,7 @@ export type RaiseParams = {
 };
 
 export const DEFAULT_PARAMS: RaiseParams = {
-  thresholdSol: 0.5,
+  threshold: 0.5,
   treasuryPct: 80,
   tranchesBps: [3000, 3000, 4000],
   challengeSecs: 60,
@@ -91,7 +97,7 @@ export function curveConfig(p: RaiseParams) {
     token: {
       tokenType: TokenType.Token2022,
       tokenBaseDecimal: TokenDecimal.SIX,
-      tokenQuoteDecimal: TokenDecimal.NINE,
+      tokenQuoteDecimal: (p.quote?.decimals ?? 9) as TokenDecimal,
       tokenAuthorityOption: TokenAuthorityOption.Immutable,
       totalTokenSupply: 1_000_000_000,
       leftover: 0,
@@ -133,7 +139,7 @@ export function curveConfig(p: RaiseParams) {
     },
     activationType: ActivationType.Timestamp,
     percentageSupplyOnMigration: supplyPct,
-    migrationQuoteThreshold: p.thresholdSol,
+    migrationQuoteThreshold: p.threshold,
   });
 }
 
@@ -142,7 +148,24 @@ export class Raise {
     readonly oc: OwnCurve,
     readonly config: PublicKey,
     readonly baseMint: PublicKey,
+    readonly quoteMint: PublicKey = NATIVE_MINT,
+    readonly quoteProgram: PublicKey = TOKEN_PROGRAM_ID,
   ) {}
+  get isSol() {
+    return this.quoteMint.equals(NATIVE_MINT);
+  }
+  /** Lee de la cadena el mint base y la moneda del raise (o de su config DBC si aún no tiene pool). */
+  static async load(oc: OwnCurve, config: PublicKey): Promise<Raise> {
+    const pda = PublicKey.findProgramAddressSync([Buffer.from("raise"), config.toBuffer()], oc.programId)[0];
+    const raise = await (oc.program.account as any).raise.fetch(pda);
+    let quoteMint = new PublicKey(raise.quoteMint);
+    if (quoteMint.equals(PublicKey.default)) {
+      const cfg = await oc.dbc.state.getPoolConfig(config).catch(() => null);
+      quoteMint = cfg ? new PublicKey(cfg.quoteMint) : NATIVE_MINT;
+    }
+    const q = await oc.quoteInfo(quoteMint);
+    return new Raise(oc, config, new PublicKey(raise.baseMint), q.mint, q.program);
+  }
   get pid() {
     return this.oc.programId;
   }
@@ -156,10 +179,10 @@ export class Raise {
     return PublicKey.findProgramAddressSync([Buffer.from("escrow"), this.raise.toBuffer()], this.pid)[0];
   }
   get pool() {
-    return deriveDbcPoolAddress(NATIVE_MINT, this.baseMint, this.config);
+    return deriveDbcPoolAddress(this.quoteMint, this.baseMint, this.config);
   }
   get treasuryQuote() {
-    return getAssociatedTokenAddressSync(NATIVE_MINT, this.treasury, true);
+    return getAssociatedTokenAddressSync(this.quoteMint, this.treasury, true, this.quoteProgram);
   }
   get treasuryBase() {
     return getAssociatedTokenAddressSync(this.baseMint, this.treasury, true, TOKEN_2022_PROGRAM_ID);
@@ -171,7 +194,7 @@ export class Raise {
     return getAssociatedTokenAddressSync(this.baseMint, owner, true, TOKEN_2022_PROGRAM_ID);
   }
   quoteAta(owner: PublicKey) {
-    return getAssociatedTokenAddressSync(NATIVE_MINT, owner, true);
+    return getAssociatedTokenAddressSync(this.quoteMint, owner, true, this.quoteProgram);
   }
   voteRecord(voter: PublicKey, nonce: number) {
     return PublicKey.findProgramAddressSync(
@@ -215,6 +238,30 @@ export class OwnCurve {
     return this.program.methods as any;
   }
 
+  private quoteCache = new Map<string, Quote>();
+  /** Programa de token, decimales y símbolo de una moneda. */
+  async quoteInfo(mint: PublicKey, symbol?: string): Promise<Quote> {
+    if (mint.equals(NATIVE_MINT)) return SOL_QUOTE;
+    const hit = this.quoteCache.get(mint.toBase58());
+    if (hit) return hit;
+    const info = await this.net.conn.getAccountInfo(mint);
+    if (!info) throw new Error(`La moneda ${mint.toBase58()} no existe en esta red`);
+    const program = new PublicKey(info.owner);
+    const decimals = info.data[44];
+    let sym = symbol;
+    if (!sym && program.equals(TOKEN_2022_PROGRAM_ID)) {
+      try {
+        const { getTokenMetadata } = await import("@solana/spl-token");
+        sym = (await getTokenMetadata(this.net.conn, mint, "confirmed", TOKEN_2022_PROGRAM_ID))?.symbol;
+      } catch {
+        /* sin metadata */
+      }
+    }
+    const q = { mint, program, decimals, symbol: sym || mint.toBase58().slice(0, 4) };
+    this.quoteCache.set(mint.toBase58(), q);
+    return q;
+  }
+
   // ---------------------------------------------------------------- creación
   /** init_raise + create_config de DBC en UNA transacción. */
   async createRaise(params: RaiseParams, configKp = Keypair.generate(), team = this.net.payer) {
@@ -240,7 +287,7 @@ export class OwnCurve {
       feeClaimer: params.feeClaimer ?? r.treasury,
       leftoverReceiver: r.treasury,
       payer: this.payer,
-      quoteMint: NATIVE_MINT,
+      quoteMint: params.quote?.mint ?? NATIVE_MINT,
       ...curveConfig(params),
     });
     const sig = await this.net.send("init_raise + create_config", [initRaise, ...createConfig.instructions], [
@@ -262,7 +309,9 @@ export class OwnCurve {
       uri: "https://raw.githubusercontent.com/solana-developers/opos-asset/main/assets/DeveloperPortal/metadata.json",
     },
   ) {
-    const r = new Raise(this, config, baseMintKp.publicKey);
+    const cfg = await this.dbc.state.getPoolConfig(config);
+    const q = await this.quoteInfo(new PublicKey(cfg!.quoteMint));
+    const r = new Raise(this, config, baseMintKp.publicKey, q.mint, q.program);
     const ixs: TransactionInstruction[] = [];
     if (withPool && !(await this.net.conn.getAccountInfo(r.pool))) {
       const createPool = await this.dbc.creator.createPool({
@@ -347,7 +396,7 @@ export class OwnCurve {
 
   private ensureTreasuryAtas(r: Raise) {
     return [
-      createAssociatedTokenAccountIdempotentInstruction(this.payer, r.treasuryQuote, r.treasury, NATIVE_MINT),
+      createAssociatedTokenAccountIdempotentInstruction(this.payer, r.treasuryQuote, r.treasury, r.quoteMint, r.quoteProgram),
       createAssociatedTokenAccountIdempotentInstruction(
         this.payer,
         r.treasuryBase,
@@ -366,9 +415,9 @@ export class OwnCurve {
         raise: r.raise,
         treasury: r.treasury,
         treasuryQuote: r.treasuryQuote,
-        quoteMint: NATIVE_MINT,
+        quoteMint: r.quoteMint,
         ...this.dbcAccounts(r, pool),
-        quoteTokenProgram: TOKEN_PROGRAM_ID,
+        quoteTokenProgram: r.quoteProgram,
       })
       .instruction();
     return this.net.send("harvest", [...this.ensureTreasuryAtas(r), ix], []);
@@ -384,11 +433,11 @@ export class OwnCurve {
         treasuryBase: r.treasuryBase,
         treasuryQuote: r.treasuryQuote,
         baseMint: r.baseMint,
-        quoteMint: NATIVE_MINT,
+        quoteMint: r.quoteMint,
         ...this.dbcAccounts(r, pool),
         dbcBaseVault: pool.baseVault,
         baseTokenProgram: TOKEN_2022_PROGRAM_ID,
-        quoteTokenProgram: TOKEN_PROGRAM_ID,
+        quoteTokenProgram: r.quoteProgram,
       })
       .instruction();
     return this.net.send("collect_trading_fees", [...this.ensureTreasuryAtas(r), ix], []);
@@ -402,9 +451,9 @@ export class OwnCurve {
         raise: r.raise,
         treasury: r.treasury,
         treasuryQuote: r.treasuryQuote,
-        quoteMint: NATIVE_MINT,
+        quoteMint: r.quoteMint,
         ...this.dbcAccounts(r, pool),
-        quoteTokenProgram: TOKEN_PROGRAM_ID,
+        quoteTokenProgram: r.quoteProgram,
       })
       .instruction();
     return this.net.send("collect_surplus", [ix], []);
@@ -418,7 +467,7 @@ export class OwnCurve {
   }
 
   async dammPool(r: Raise) {
-    return deriveDammV2PoolAddress(await this.dammConfig(), r.baseMint, NATIVE_MINT);
+    return deriveDammV2PoolAddress(await this.dammConfig(), r.baseMint, r.quoteMint);
   }
 
   async migrate(r: Raise) {
@@ -457,17 +506,17 @@ export class OwnCurve {
         treasuryBase: r.treasuryBase,
         treasuryQuote: r.treasuryQuote,
         baseMint: r.baseMint,
-        quoteMint: NATIVE_MINT,
+        quoteMint: r.quoteMint,
         dammPoolAuthority: deriveDammV2PoolAuthority(),
         dammPool: pool,
         position: pos.position,
         dammBaseVault: deriveDammV2TokenVaultAddress(pool, r.baseMint),
-        dammQuoteVault: deriveDammV2TokenVaultAddress(pool, NATIVE_MINT),
+        dammQuoteVault: deriveDammV2TokenVaultAddress(pool, r.quoteMint),
         positionNftAccount: pos.nftAccount,
         dammEventAuthority: deriveDammV2EventAuthority(),
         dammProgram: DAMM_V2,
         baseTokenProgram: TOKEN_2022_PROGRAM_ID,
-        quoteTokenProgram: TOKEN_PROGRAM_ID,
+        quoteTokenProgram: r.quoteProgram,
       })
       .instruction();
     return this.net.send("claim_lp_fees", [...this.ensureTreasuryAtas(r), ix], []);
@@ -534,15 +583,15 @@ export class OwnCurve {
         treasuryBase: r.treasuryBase,
         treasuryQuote: r.treasuryQuote,
         baseMint: r.baseMint,
-        quoteMint: NATIVE_MINT,
+        quoteMint: r.quoteMint,
         dammPoolAuthority: deriveDammV2PoolAuthority(),
         dammPool: pool,
         dammBaseVault: deriveDammV2TokenVaultAddress(pool, r.baseMint),
-        dammQuoteVault: deriveDammV2TokenVaultAddress(pool, NATIVE_MINT),
+        dammQuoteVault: deriveDammV2TokenVaultAddress(pool, r.quoteMint),
         dammEventAuthority: deriveDammV2EventAuthority(),
         dammProgram: DAMM_V2,
         baseTokenProgram: TOKEN_2022_PROGRAM_ID,
-        quoteTokenProgram: TOKEN_PROGRAM_ID,
+        quoteTokenProgram: r.quoteProgram,
       })
       .instruction();
     return this.net.send("defend_floor", [...this.ensureTreasuryAtas(r), ix], []);
@@ -554,7 +603,7 @@ export class OwnCurve {
     const pool = await this.dammPool(r);
     const wsol = r.quoteAta(seller.publicKey);
     const ixs = [
-      createAssociatedTokenAccountIdempotentInstruction(seller.publicKey, wsol, seller.publicKey, NATIVE_MINT),
+      createAssociatedTokenAccountIdempotentInstruction(seller.publicKey, wsol, seller.publicKey, r.quoteMint, r.quoteProgram),
       await damm.methods
         .swap({ amountIn: baseIn, minimumAmountOut: new BN(0) })
         .accountsPartial({
@@ -563,12 +612,12 @@ export class OwnCurve {
           inputTokenAccount: r.baseAta(seller.publicKey),
           outputTokenAccount: wsol,
           tokenAVault: deriveDammV2TokenVaultAddress(pool, r.baseMint),
-          tokenBVault: deriveDammV2TokenVaultAddress(pool, NATIVE_MINT),
+          tokenBVault: deriveDammV2TokenVaultAddress(pool, r.quoteMint),
           tokenAMint: r.baseMint,
-          tokenBMint: NATIVE_MINT,
+          tokenBMint: r.quoteMint,
           payer: seller.publicKey,
           tokenAProgram: TOKEN_2022_PROGRAM_ID,
-          tokenBProgram: TOKEN_PROGRAM_ID,
+          tokenBProgram: r.quoteProgram,
           referralTokenAccount: null,
           eventAuthority: deriveDammV2EventAuthority(),
           program: DAMM_V2,
@@ -585,10 +634,15 @@ export class OwnCurve {
     const wsol = r.quoteAta(buyer.publicKey);
     const out = r.baseAta(buyer.publicKey);
     const ixs = [
-      createAssociatedTokenAccountIdempotentInstruction(buyer.publicKey, wsol, buyer.publicKey, NATIVE_MINT),
+      createAssociatedTokenAccountIdempotentInstruction(buyer.publicKey, wsol, buyer.publicKey, r.quoteMint, r.quoteProgram),
       createAssociatedTokenAccountIdempotentInstruction(buyer.publicKey, out, buyer.publicKey, r.baseMint, TOKEN_2022_PROGRAM_ID),
-      SystemProgram.transfer({ fromPubkey: buyer.publicKey, toPubkey: wsol, lamports: BigInt(lamportsIn.toString()) }),
-      createSyncNativeInstruction(wsol),
+      // con SOL hay que envolverlo en wSOL; otras monedas salen directamente de la cuenta del comprador
+      ...(r.isSol
+        ? [
+            SystemProgram.transfer({ fromPubkey: buyer.publicKey, toPubkey: wsol, lamports: BigInt(lamportsIn.toString()) }),
+            createSyncNativeInstruction(wsol),
+          ]
+        : []),
       await damm.methods
         .swap({ amountIn: lamportsIn, minimumAmountOut: new BN(0) })
         .accountsPartial({
@@ -597,12 +651,12 @@ export class OwnCurve {
           inputTokenAccount: wsol,
           outputTokenAccount: out,
           tokenAVault: deriveDammV2TokenVaultAddress(pool, r.baseMint),
-          tokenBVault: deriveDammV2TokenVaultAddress(pool, NATIVE_MINT),
+          tokenBVault: deriveDammV2TokenVaultAddress(pool, r.quoteMint),
           tokenAMint: r.baseMint,
-          tokenBMint: NATIVE_MINT,
+          tokenBMint: r.quoteMint,
           payer: buyer.publicKey,
           tokenAProgram: TOKEN_2022_PROGRAM_ID,
-          tokenBProgram: TOKEN_PROGRAM_ID,
+          tokenBProgram: r.quoteProgram,
           referralTokenAccount: null,
           eventAuthority: deriveDammV2EventAuthority(),
           program: DAMM_V2,
@@ -659,16 +713,16 @@ export class OwnCurve {
         treasuryQuote: r.treasuryQuote,
         treasuryBase: r.treasuryBase,
         teamQuote,
-        quoteMint: NATIVE_MINT,
+        quoteMint: r.quoteMint,
         baseMint: r.baseMint,
-        quoteTokenProgram: TOKEN_PROGRAM_ID,
+        quoteTokenProgram: r.quoteProgram,
       })
       .instruction();
     return this.net.send(
       "finalize",
       [
         ...this.ensureTreasuryAtas(r),
-        createAssociatedTokenAccountIdempotentInstruction(this.payer, teamQuote, raise.team, NATIVE_MINT),
+        createAssociatedTokenAccountIdempotentInstruction(this.payer, teamQuote, raise.team, r.quoteMint, r.quoteProgram),
         ix,
       ],
       [],
@@ -705,16 +759,16 @@ export class OwnCurve {
         holderBase: r.baseAta(holder.publicKey),
         holderQuote,
         baseMint: r.baseMint,
-        quoteMint: NATIVE_MINT,
+        quoteMint: r.quoteMint,
         baseTokenProgram: TOKEN_2022_PROGRAM_ID,
-        quoteTokenProgram: TOKEN_PROGRAM_ID,
+        quoteTokenProgram: r.quoteProgram,
       })
       .instruction();
     return this.net.send(
       "redeem",
       [
         ...this.ensureTreasuryAtas(r),
-        createAssociatedTokenAccountIdempotentInstruction(this.payer, holderQuote, holder.publicKey, NATIVE_MINT),
+        createAssociatedTokenAccountIdempotentInstruction(this.payer, holderQuote, holder.publicKey, r.quoteMint, r.quoteProgram),
         ix,
       ],
       [holder],

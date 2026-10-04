@@ -1610,6 +1610,7 @@ dependencies = [
  "anchor-spl",
  "damm-v2",
  "dynamic-bonding-curve",
+ "solana-security-txt",
 ]
 
 [[package]]
@@ -2798,6 +2799,12 @@ dependencies = [
  "solana-define-syscall 5.2.0",
  "thiserror 2.0.21",
 ]
+
+[[package]]
+name = "solana-security-txt"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c94a02d486b28f219a4f8f5d7dd93cbfbb93c9f466cb7871c22e50cd5ae9a7a2"
 
 [[package]]
 name = "solana-seed-derivable"

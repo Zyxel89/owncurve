@@ -22,6 +22,17 @@ export WALLET=~/.config/solana/id.json          # keypair that signs
 npx tsx scripts/cli.ts help
 ```
 
+### As an MCP server
+
+The same commands are MCP tools (`owncurve_show`, `owncurve_object`…). Add to your MCP client:
+
+```json
+{ "mcpServers": { "owncurve": { "command": "npx", "args": ["tsx", "/path/to/owncurve/scripts/mcp.ts"],
+  "env": { "RPC_URL": "https://api.devnet.solana.com", "WALLET": "/path/to/keypair.json" } } } }
+```
+
+Write tools take `confirm`; without `confirm: true` they only simulate. The rules below apply the same way.
+
 Every command prints JSON. Below, `owncurve` means `npx tsx scripts/cli.ts`.
 
 ## Rules for the agent
@@ -34,7 +45,7 @@ Every command prints JSON. Below, `owncurve` means `npx tsx scripts/cli.ts`.
    lock their tokens. `harvest`, `collect-fees`, `migrate`, `settle` and `defend-floor` are
    permissionless upkeep that only moves funds into the treasury or follows its rules; you can
    run them when `can` lists them, but say what you did.
-4. Report amounts in SOL and link the `explorer` URL from the result.
+4. Amounts are in the raise currency (`quote.symbol` in `show`: SOL, USDC, an xStock…). Link the `explorer` URL from the result.
 5. On `{"ok": false, "error": "<Name>"}` explain the error in plain words (table below); do not retry blindly.
 
 ## Commands
@@ -43,17 +54,17 @@ Every command prints JSON. Below, `owncurve` means `npx tsx scripts/cli.ts`.
 | --- | --- | --- |
 | `list` | anyone | All raises with state, funded and treasury SOL |
 | `show <config>` | anyone | Tranches, pending proposal + evidence, price vs backing, wallet, `can` |
-| `launch --name N --symbol S [--threshold 0.5] [--treasury 80] [--tranches 30,30,40] [--window 60] [--quorum 10] [--floor 20]` | team | New raise; returns `config` |
+| `launch --name N --symbol S [--quote SOL\|<mint>] [--threshold 0.5] [--treasury 80] [--tranches 30,30,40] [--window 60] [--quorum 10] [--floor 20]` | team | New raise in SOL, a stablecoin or any SPL/Token-2022 token; returns `config` |
 | `propose <config> --evidence URL [--note TEXT]` | team | Request the next tranche; stores `sha256(note or URL)` |
-| `buy <config> --sol X` | anyone | Buy on the bonding curve |
+| `buy <config> --spend X` | anyone | Buy on the bonding curve, spending X of the raise currency |
 | `harvest <config>` | anyone | Move the graduated raise into the treasury |
 | `migrate <config>` | anyone | Graduate the pool to Meteora DAMM v2 |
 | `collect-fees <config>` | anyone | Curve trading fees → treasury |
 | `settle <config>` | anyone | After the window: pay the tranche, or open redemptions if quorum objected |
-| `defend-floor <config> [--sol X]` | anyone | Treasury buys back below backing and burns |
-| `object <config> [--amount T]` | holder | Lock tokens against the pending tranche (default: all) |
+| `defend-floor <config> [--spend X]` | anyone | Treasury buys back below backing and burns |
+| `object <config> [--tokens T]` | holder | Lock tokens against the pending tranche (default: all) |
 | `unlock <config>` | holder | Return voted tokens after settlement |
-| `redeem <config> [--amount T]` | holder | In liquidation: burn tokens for a pro-rata share of the treasury |
+| `redeem <config> [--tokens T]` | holder | In liquidation: burn tokens for a pro-rata share of the treasury |
 
 ## Workflows
 
@@ -67,7 +78,7 @@ Every command prints JSON. Below, `owncurve` means `npx tsx scripts/cli.ts`.
    against `quorumTokens`. Recommend objecting only with a concrete reason (link missing,
    unrelated to the milestone, hash mismatch). If the user agrees: `owncurve object <config>` (dry run), then `--yes`.
 4. After the window: `owncurve settle <config> --yes`, then `owncurve unlock <config> --yes`.
-5. If `state` became `liquidating`, offer `owncurve redeem <config>`; `backing.solPerMillionTokens` tells what it pays.
+5. If `state` became `liquidating`, offer `owncurve redeem <config>`; `backing.perMillionTokens` tells what it pays, in `quote.symbol`.
 
 ### Launch for a team
 

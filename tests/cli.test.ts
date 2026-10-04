@@ -95,7 +95,7 @@ test("la Agent Skill puede llevar un raise de punta a punta solo con el CLI", { 
   // piso: graduar, y defend-floor sin nada que defender lo explica
   await yes(cli(team, "migrate", config, "--yes"));
   s = await cli(team, "show", config);
-  assert.ok(s.market && typeof s.market.priceSolPerMillionTokens === "number", JSON.stringify(s.market));
+  assert.ok(s.market && typeof s.market.pricePerMillionTokens === "number", JSON.stringify(s.market));
   assert.equal(s.market.belowBacking, false);
   assert.equal((await cli(team, "defend-floor", config, "--yes")).ok, false);
 });

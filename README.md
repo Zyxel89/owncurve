@@ -10,16 +10,22 @@ rejection that reaches quorum turns the treasury into a pro-rata redemption pool
 After graduation the treasury also owns the DAMM v2 LP position, so it keeps earning
 trading fees forever.
 
-Two things no other launchpad does on-chain:
+Three things no other launchpad does on-chain:
 
 - **Evidence-backed milestones.** Every tranche request stores a link to the delivered work and
   the SHA-256 of what the team claims it shipped. Holders (or their AI agent) review it during
   the challenge window.
 - **A price floor that defends itself.** A share of the treasury (default 20%) plus every fee it
-  earns is never paid to the team. When the token trades on DAMM v2 below the SOL the treasury
+  earns is never paid to the team. When the token trades on DAMM v2 below what the treasury
   holds per token, anyone can call `defend_floor`: the treasury buys tokens back through a CPI
   swap, **the program refuses to pay more than the backing**, and the tokens are burned, so the
   backing of every remaining token goes up.
+- **Raise in anything.** SOL, a stablecoin like USDC (SPL) or a tokenized stock like the xStocks
+  (Token-2022): the program is token-interface generic, so the treasury, tranches, redemptions and
+  floor buybacks all work in the raise currency.
+
+And it is built for agents: an **MCP server** and an **Agent Skill** let any AI client read raises,
+audit milestone evidence and act for holders, with every write simulated unless confirmed.
 
 Built for the Colosseum Crypto World's Fair — "Best use of Meteora's DBC" sidetrack.
 
@@ -28,8 +34,12 @@ Built for the Colosseum Crypto World's Fair — "Best use of Meteora's DBC" side
 - **Live app (Solana devnet):** https://zyxel89.github.io/owncurve/ — click **Use a test wallet**, or connect Phantom / Solflare / Backpack set to devnet.
 - **A raise that paid its team in 3 evidence-backed tranches and defended its price floor:** https://zyxel89.github.io/owncurve/#/raise/7sDbgBXGy6o5AWs6NpCUG8EfuRCTBqzKG8SNZ8Prb7Ra
 - **A raise whose holders stopped the payment and redeemed the treasury:** https://zyxel89.github.io/owncurve/#/raise/ERrfcHfstYDDgamvvRYS3XDkJ2LmZk8Dei6sMhSQV9tW
+- **A raise in a stablecoin (tUSD, SPL like USDC):** https://zyxel89.github.io/owncurve/#/raise/FLtDebR8xRPrLcmGTDwA1XSfn3JbFw9ts5APNrDEQW3m
+- **A raise in a tokenized stock (tNVDAx, Token-2022 like xStocks) that defended its floor:** https://zyxel89.github.io/owncurve/#/raise/FDtBpfVYe1NJKNWWiuieJueFPKfmDY6XJhJyRxjc1aQe
+- **Mainnet study, what DBC launches promise holders today:** [`docs/MAINNET-STUDY.md`](docs/MAINNET-STUDY.md)
 - **Every devnet transaction, step by step:** [`docs/DEMO-devnet.md`](docs/DEMO-devnet.md)
-- **Agent Skill:** [`skills/owncurve/SKILL.md`](skills/owncurve/SKILL.md)
+- **Agent Skill and MCP server:** [`skills/owncurve/SKILL.md`](skills/owncurve/SKILL.md) · [`scripts/mcp.ts`](scripts/mcp.ts)
+- **Security notes and binary verification:** [`SECURITY.md`](SECURITY.md)
 
 ```
 OwnCurve program (Anchor 1.2)                Meteora
@@ -89,9 +99,10 @@ After graduation, price < backing: defend_floor -> DAMM v2 swap (treasury pays) 
 
 ## Devnet
 
-Program `GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh`. `scripts/demo.ts` runs two real raises
-(happy path with a defended floor, and a rejected tranche that ends in redemptions); every
-transaction is linked in [`docs/DEMO-devnet.md`](docs/DEMO-devnet.md).
+Program `GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh`. `scripts/demo.ts` runs four real raises:
+evidence-backed tranches with a defended floor (SOL), a rejected tranche that ends in redemptions
+(SOL), a raise in a stablecoin (tUSD) and a raise in a tokenized stock (tNVDAx) that defends its
+floor. Every transaction is linked in [`docs/DEMO-devnet.md`](docs/DEMO-devnet.md).
 
 ## Web app
 
@@ -104,6 +115,35 @@ It lists every raise, draws the treasury as a vault split into tranches, shows t
 npm run app            # http://localhost:5173 (devnet; set VITE_RPC_URL in app/.env.local)
 npm run e2e            # Chromium drives the whole lifecycle against LiteSVM with the real programs
 ```
+
+## Raise in SOL, stablecoins or tokenized stocks
+
+Every account that touches the raise currency is an `InterfaceAccount` with its own token program,
+so a raise can be quoted in SOL, any SPL token or any Token-2022 token that Meteora DBC and DAMM v2
+accept. On devnet the app ships two test currencies with a public faucet (their mint authority is
+deliberately public): **tUSD** (SPL, 6 decimals, like USDC) and **tNVDAx** (Token-2022, 8 decimals,
+like the xStocks). On mainnet you pass the real mint (`--quote EPjF…Dt1v` for USDC).
+`tests/owncurve.test.ts` runs the whole lifecycle in both (tranches, floor buyback, liquidation and
+redemption).
+
+## MCP server
+
+```json
+{
+  "mcpServers": {
+    "owncurve": {
+      "command": "npx",
+      "args": ["tsx", "/path/to/owncurve/scripts/mcp.ts"],
+      "env": { "RPC_URL": "https://api.devnet.solana.com", "WALLET": "/path/to/devnet-keypair.json" }
+    }
+  }
+}
+```
+
+13 tools (`owncurve_list`, `owncurve_show`, `owncurve_launch`, `owncurve_propose`, `owncurve_object`,
+`owncurve_settle`, `owncurve_redeem`, `owncurve_defend_floor`…). Reads are annotated read-only;
+writes take `confirm` and only **simulate** the transaction unless `confirm: true`.
+`tests/mcp.test.ts` drives it with the official MCP client.
 
 ## Agent Skill and CLI
 
@@ -123,8 +163,10 @@ npm run owncurve -- defend-floor <config>   # dry run; add --yes to send
 ```
 anchor build --skip-lint --tools-version v1.52 --arch v0
 npm ci
-CLUSTER=local npx tsx --test tests/owncurve.test.ts   # 23 integration tests, real DBC + DAMM v2 binaries
+CLUSTER=local npx tsx --test tests/owncurve.test.ts   # 25 integration tests, real DBC + DAMM v2 binaries
 npx tsx --test tests/cli.test.ts                      # the agent CLI end to end over JSON-RPC
+npx tsx --test tests/mcp.test.ts                      # the MCP server with the official MCP client
+npx tsx --test tests/study.test.ts                    # the mainnet study against a local validator
 npm run e2e                                           # Chromium drives the app, incl. floor defense
 CLUSTER=local npx tsx scripts/f1.ts --migrate        # end-to-end flow in LiteSVM
 npx tsx scripts/f1.ts --migrate                      # same flow on devnet
@@ -132,6 +174,24 @@ npx tsx scripts/f1.ts --migrate                      # same flow on devnet
 
 Local tests need `local/dynamic_bonding_curve.so` (built from DBC source at f552f20) and
 `local/damm_v2.so` (DBC repo test fixture); `owncurve.sh` prepares both.
+
+## Mainnet study
+
+`scripts/study.ts` reads every Meteora DBC config and launch on mainnet and measures what holders are
+promised today: where the graduation fee goes (a wallet or a program), whether LP stays unlocked,
+whether someone keeps the mint authority. Results: [`docs/MAINNET-STUDY.md`](docs/MAINNET-STUDY.md).
+
+```
+MAINNET_RPC=<mainnet RPC with getProgramAccounts> npx tsx scripts/study.ts
+```
+
+## Verify the deployed program
+
+```
+anchor build --skip-lint --tools-version v1.52 --arch v0
+bash scripts/verify.sh https://api.devnet.solana.com   # SHA-256 of the devnet program == local build
+anchor idl fetch <program id> --provider.cluster devnet  # IDL published on-chain
+```
 
 ## Known limitations (MVP)
 

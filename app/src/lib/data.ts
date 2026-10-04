@@ -5,7 +5,8 @@ import { Connection, Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.j
 import { useCallback, useEffect, useRef, useState } from "react";
 import idl from "../../../target/idl/owncurve.json";
 import type { Net } from "../../../scripts/lib/net";
-import { BASE_DECIMALS, OwnCurve, Raise, ps, stateName } from "../../../scripts/lib/owncurve";
+import { BASE_DECIMALS, OwnCurve, Quote, Raise, SOL_QUOTE, ps, stateName } from "../../../scripts/lib/owncurve";
+import { TEST_QUOTES, testQuoteOf } from "../../../scripts/lib/quotes";
 import { CLUSTER } from "./browserNet";
 
 export const IDL = idl as any;
@@ -30,6 +31,22 @@ export function readOnlyClient(conn: Connection) {
 export const lamportsToSol = (v: BN | number | bigint) => Number(v.toString()) / LAMPORTS_PER_SOL;
 export const fmtSol = (v: BN | number | bigint, digits = 3) =>
   lamportsToSol(v).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+/** Cantidad atómica → texto en la moneda del raise. */
+export const fmtAmt = (v: BN | number | bigint, q: Quote, digits = 3) =>
+  (Number(v.toString()) / 10 ** q.decimals).toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+/** Monedas de prueba de devnet con nombre legible (en mainnet: USDC, xStocks reales). */
+export const KNOWN_QUOTES: (Quote & { label: string; test: boolean })[] = [
+  { ...SOL_QUOTE, label: "SOL", test: false },
+  ...TEST_QUOTES.map((t) => ({
+    ...testQuoteOf(t),
+    label: t.token2022 ? `${t.symbol} · test xStock (Token-2022)` : `${t.symbol} · test USD stablecoin`,
+    test: true,
+  })),
+];
+export async function quoteOf(oc: OwnCurve, mint: PublicKey): Promise<Quote> {
+  const known = KNOWN_QUOTES.find((q) => q.mint.equals(mint));
+  return known ?? oc.quoteInfo(mint);
+}
 export const fmtTokens = (v: BN) =>
   (Number(v.toString()) / 10 ** BASE_DECIMALS).toLocaleString("en-US", { maximumFractionDigits: 0 });
 
@@ -50,9 +67,10 @@ export type RaiseRow = {
   name: string;
   symbol: string;
   state: string;
-  treasurySol: number;
+  treasury: number; // en la moneda del raise
   progress: number | null; // 0..1 mientras está en la curva
-  fundedSol: number;
+  funded: number;
+  quote: string;
   team: string;
 };
 
@@ -77,7 +95,9 @@ export async function listRaises(oc: OwnCurve): Promise<RaiseRow[]> {
     all.map(async ({ account }) => {
       const config = new PublicKey(account.dbcConfig);
       const baseMint = new PublicKey(account.baseMint);
-      const r = new Raise(oc, config, baseMint);
+      const qm = new PublicKey(account.quoteMint);
+      const q = qm.equals(DEFAULT) ? SOL_QUOTE : await quoteOf(oc, qm).catch(() => SOL_QUOTE);
+      const r = new Raise(oc, config, baseMint, q.mint, q.program);
       const state = stateName(account.state);
       const bound = !baseMint.equals(DEFAULT);
       const meta = bound ? await tokenMeta(oc.net.conn, baseMint) : { name: "Not launched yet", symbol: "—" };
@@ -85,7 +105,7 @@ export async function listRaises(oc: OwnCurve): Promise<RaiseRow[]> {
       if (state === "bonding") {
         try {
           const c = await oc.curve(r);
-          progress = Math.min(1, lamportsToSol(c.reserve) / lamportsToSol(c.threshold));
+          progress = Math.min(1, Number(c.reserve.toString()) / Number(c.threshold.toString()));
         } catch {
           progress = 0;
         }
@@ -95,15 +115,16 @@ export async function listRaises(oc: OwnCurve): Promise<RaiseRow[]> {
         config: config.toBase58(),
         ...meta,
         state,
-        treasurySol: lamportsToSol(treasury),
+        treasury: Number(treasury.toString()) / 10 ** q.decimals,
+        quote: q.symbol,
         progress,
-        fundedSol: lamportsToSol(account.fundedAmount),
+        funded: Number(account.fundedAmount.toString()) / 10 ** q.decimals,
         team: new PublicKey(account.team).toBase58(),
       };
     }),
   );
   const order = ["bonding", "funded", "liquidating", "completed", "pending"];
-  return rows.sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state) || b.fundedSol - a.fundedSol);
+  return rows.sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state) || b.funded - a.funded);
 }
 
 export type Vote = { nonce: number; amount: BN };
@@ -119,7 +140,8 @@ export type RaiseDetail = {
   cfg: any | null;
   treasuryQuote: BN;
   circulating: BN;
-  navPerMillion: number; // SOL que recibe quien redime 1.000.000 tokens
+  quote: Quote;
+  navPerMillion: number; // moneda que recibe quien redime 1.000.000 tokens
   proposal: { milestone: number; endsAt: number; rejectWeight: BN; quorum: BN; evidenceUri: string; evidenceHash: string } | null;
   /** Lo que el equipo puede cobrar en tramos: financiado − reserva del piso. */
   payable: BN;
@@ -127,7 +149,7 @@ export type RaiseDetail = {
   floorBudget: BN;
   /** Mercado DAMM v2 tras graduar: precio y respaldo en SOL por 1.000.000 tokens. */
   market: { pricePerMillion: number; backingPerMillion: number; suggest: BN } | null;
-  user: { base: BN; sol: number; votes: Vote[] } | null;
+  user: { base: BN; sol: number; quoteBal: BN; votes: Vote[] } | null;
   /** Segundos que el reloj de la cadena va por delante (+) o por detrás (−) del navegador. */
   clockSkew: number;
 };
@@ -136,11 +158,14 @@ export async function loadRaise(oc: OwnCurve, config: PublicKey, user: PublicKey
   const raisePda = PublicKey.findProgramAddressSync([Buffer.from("raise"), config.toBuffer()], oc.programId)[0];
   const raise = await (oc.program.account as any).raise.fetch(raisePda);
   const baseMint = new PublicKey(raise.baseMint);
-  const r = new Raise(oc, config, baseMint);
+  const cfg0 = await oc.dbc.state.getPoolConfig(config).catch(() => null);
+  const qm = new PublicKey(raise.quoteMint);
+  const quote = await quoteOf(oc, qm.equals(DEFAULT) ? (cfg0 ? new PublicKey(cfg0.quoteMint) : SOL_QUOTE.mint) : qm);
+  const r = new Raise(oc, config, baseMint, quote.mint, quote.program);
   const state = stateName(raise.state);
   const bound = !baseMint.equals(DEFAULT);
   const meta = bound ? await tokenMeta(oc.net.conn, baseMint) : { name: "Not launched yet", symbol: "—" };
-  const cfg = await oc.dbc.state.getPoolConfig(config).catch(() => null);
+  const cfg = cfg0;
 
   let curve: RaiseDetail["curve"] = null;
   let circulating = new BN(0);
@@ -158,7 +183,7 @@ export async function loadRaise(oc: OwnCurve, config: PublicKey, user: PublicKey
   }
   const navPerMillion = circulating.isZero()
     ? 0
-    : (lamportsToSol(treasuryQuote) * 1_000_000 * 10 ** BASE_DECIMALS) / Number(circulating.toString());
+    : ((Number(treasuryQuote.toString()) / 10 ** quote.decimals) * 1_000_000 * 10 ** BASE_DECIMALS) / Number(circulating.toString());
 
   const active = raise.milestones.findIndex((m: any) => stateName(m.status) === "proposed");
   const proposal =
@@ -184,7 +209,7 @@ export async function loadRaise(oc: OwnCurve, config: PublicKey, user: PublicKey
       const st = await oc.dammState(r);
       if (st) {
         // lamports por unidad atómica → SOL por 1.000.000 tokens
-        const k = (10 ** BASE_DECIMALS * 1_000_000) / LAMPORTS_PER_SOL;
+        const k = (10 ** BASE_DECIMALS * 1_000_000) / 10 ** quote.decimals;
         const backingUnit = circulating.isZero() ? 0 : Number(treasuryQuote.toString()) / Number(circulating.toString());
         const suggest = ["funded", "completed"].includes(state) ? await oc.suggestDefend(r) : new BN(0);
         market = { pricePerMillion: st.price * k, backingPerMillion: backingUnit * k, suggest };
@@ -206,7 +231,8 @@ export async function loadRaise(oc: OwnCurve, config: PublicKey, user: PublicKey
       const v = oc.program.coder.accounts.decode("voteRecord", info.data);
       votes.push({ nonce: nonces[i], amount: new BN(v.amount.toString()) });
     });
-    userInfo = { base, sol, votes };
+    const quoteBal = r.isSol ? new BN(0) : await oc.tokenBalance(r.quoteAta(user));
+    userInfo = { base, sol, quoteBal, votes };
   }
 
   let clockSkew = 0;
@@ -222,6 +248,7 @@ export async function loadRaise(oc: OwnCurve, config: PublicKey, user: PublicKey
     raise,
     state,
     clockSkew,
+    quote,
     ...meta,
     team: new PublicKey(raise.team),
     curve,

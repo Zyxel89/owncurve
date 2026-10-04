@@ -5,6 +5,7 @@ import { PublicKey, Transaction, VersionedTransaction } from "@solana/web3.js";
 import bs58 from "bs58";
 import http from "http";
 import { makeNet } from "../../scripts/lib/net";
+import { TEST_QUOTES, createTestQuote, devnetFaucet, testQuoteKeypair } from "../../scripts/lib/quotes";
 
 export async function startRpc(port = 8899) {
   process.env.CLUSTER = "local";
@@ -12,6 +13,12 @@ export async function startRpc(port = 8899) {
   const svm = net.svm;
   const known = new Set<string>(); // LiteSVM no enumera cuentas: recordamos las que aparecen
   const statuses = new Map<string, { slot: number; err: any }>();
+  // Las monedas de prueba de devnet (tUSD, tNVDAx) existen también aquí, con la misma dirección.
+  for (const spec of TEST_QUOTES) {
+    const kp = testQuoteKeypair(spec.symbol);
+    await createTestQuote(net, spec, kp, devnetFaucet().publicKey);
+    known.add(kp.publicKey.toBase58());
+  }
   const remember = (k: PublicKey | string) => known.add(typeof k === "string" ? k : k.toBase58());
 
   const slot = () => Number(svm.getClock().slot);

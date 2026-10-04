@@ -1,8 +1,8 @@
-import { Keypair } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { FormEvent, useState } from "react";
 import { DEFAULT_PARAMS, OwnCurve } from "../../../scripts/lib/owncurve";
 import { explainError, makeBrowserNet } from "../lib/browserNet";
-import { IDL } from "../lib/data";
+import { IDL, KNOWN_QUOTES } from "../lib/data";
 import { useAccount } from "../lib/wallet";
 
 const METADATA_URI =
@@ -13,6 +13,23 @@ export function Create() {
   const [name, setName] = useState("");
   const [symbol, setSymbol] = useState("");
   const [target, setTarget] = useState("0.5");
+  const [quoteSel, setQuoteSel] = useState(KNOWN_QUOTES[0].mint.toBase58());
+  const [customMint, setCustomMint] = useState("");
+  const known = KNOWN_QUOTES.find((q) => q.mint.toBase58() === quoteSel);
+  const sym = known?.symbol ?? "tokens";
+  const pickQuote = (v: string) => {
+    setQuoteSel(v);
+    const q = KNOWN_QUOTES.find((k) => k.mint.toBase58() === v);
+    setTarget(q?.symbol === "SOL" ? "0.5" : q?.decimals === 8 ? "1" : "100");
+  };
+  let customOk = true;
+  if (quoteSel === "custom") {
+    try {
+      new PublicKey(customMint.trim());
+    } catch {
+      customOk = false;
+    }
+  }
   const [treasury, setTreasury] = useState("80");
   const [tranches, setTranches] = useState("30, 30, 40");
   const [windowSecs, setWindowSecs] = useState("60");
@@ -38,7 +55,9 @@ export function Create() {
             : !(Number(floor) >= 0 && Number(floor) <= 50)
               ? "Keep between 0% and 50% of the treasury as a price floor."
             : !(Number(target) > 0)
-              ? "Set how much SOL the curve should raise."
+              ? `Set how much ${sym} the curve should raise.`
+              : !customOk
+                ? "Paste a valid token mint address."
               : null;
 
   const submit = async (e: FormEvent) => {
@@ -49,9 +68,12 @@ export function Create() {
       const oc = new OwnCurve(makeBrowserNet(acc.conn, acc.signer), IDL);
       const configKp = Keypair.generate();
       const baseMintKp = Keypair.generate();
+      const quote =
+        quoteSel === "custom" ? await oc.quoteInfo(new PublicKey(customMint.trim())) : KNOWN_QUOTES.find((q) => q.mint.toBase58() === quoteSel)!;
       const params = {
         ...DEFAULT_PARAMS,
-        thresholdSol: Number(target),
+        quote,
+        threshold: Number(target),
         treasuryPct: Math.round(Number(treasury)),
         tranchesBps: trancheList.map((t) => Math.round(t * 100)),
         challengeSecs: Math.round(Number(windowSecs)),
@@ -98,7 +120,28 @@ export function Create() {
         <fieldset>
           <legend>Raise</legend>
           <label>
-            SOL the curve raises before graduating
+            Currency to raise in
+            <select value={quoteSel} onChange={(e) => pickQuote(e.target.value)}>
+              {KNOWN_QUOTES.map((q) => (
+                <option key={q.mint.toBase58()} value={q.mint.toBase58()}>
+                  {q.label}
+                </option>
+              ))}
+              <option value="custom">Another token (paste its mint)</option>
+            </select>
+            <small>
+              Any SPL or Token-2022 token works, e.g. USDC or an xStock on mainnet. On devnet, the test tokens come with a
+              faucet on the raise page.
+            </small>
+          </label>
+          {quoteSel === "custom" && (
+            <label>
+              Token mint address
+              <input value={customMint} onChange={(e) => setCustomMint(e.target.value)} placeholder="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" />
+            </label>
+          )}
+          <label>
+            {sym === "tokens" ? "Amount" : sym} the curve raises before graduating
             <input inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} />
           </label>
           <label>

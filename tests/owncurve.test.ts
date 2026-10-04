@@ -58,7 +58,7 @@ async function circulating(oc: OwnCurve, r: Raise) {
 test("2.4 flujo feliz: la tesorería se financia y los 3 tramos se liberan al equipo (menos la reserva del piso)", async () => {
   const { oc, net, r, p } = await fundedRaise();
   const fundedAll = n((await raiseOf(r)).fundedAmount);
-  assert.ok(fundedAll.eq(new BN(p.thresholdSol * LAMPORTS_PER_SOL).muln(p.treasuryPct).divn(100)), "80% del umbral");
+  assert.ok(fundedAll.eq(new BN(p.threshold * LAMPORTS_PER_SOL).muln(p.treasuryPct).divn(100)), "80% del umbral");
   const reserve = fundedAll.muln(p.floorReserveBps).divn(10_000);
   const funded = fundedAll.sub(reserve); // lo que el equipo puede cobrar en tramos
 
@@ -307,3 +307,61 @@ test("2.6 init_raise rechaza tramos que no suman 100%", async () => {
   const s = await setup();
   await expectError(s.oc.createRaise({ ...s.p, tranchesBps: [5000, 4000] }), "InvalidMilestones");
 });
+
+// ------------------------------------------------------------------ otras monedas (USDC / xStocks)
+import { TEST_QUOTES, createTestQuote, mintTestQuoteIxs } from "../scripts/lib/quotes";
+
+for (const spec of TEST_QUOTES) {
+  test(`2.9 raise en ${spec.symbol} (${spec.token2022 ? "Token-2022, como las xStocks" : "SPL, como USDC"}): tramos, piso y redención`, async () => {
+    const net = await makeNet();
+    const oc = new OwnCurve(net, loadIdl());
+    const quote = await createTestQuote(net, spec, Keypair.generate(), net.payer.publicKey);
+    const fund = (to: Keypair, ui: number) => net.send("emitir", mintTestQuoteIxs(quote, net.payer.publicKey, net.payer.publicKey, to.publicKey, ui), []);
+    await fund(net.payer, 10_000);
+    const p = { ...DEFAULT_PARAMS, threshold: 100, quote };
+    const { configKp } = await oc.createRaise(p);
+    const { raise: r } = await oc.launchPool(configKp.publicKey);
+    assert.ok(r.quoteMint.equals(quote.mint) && r.quoteProgram.equals(quote.program));
+    const loaded = await Raise.load(oc, configKp.publicKey);
+    assert.ok(loaded.quoteMint.equals(quote.mint) && loaded.quoteProgram.equals(quote.program), "Raise.load lee la moneda");
+
+    await oc.buyToComplete(r);
+    await oc.harvest(r);
+    const funded = n((await raiseOf(r)).fundedAmount);
+    assert.ok(funded.eq(new BN(100 * 10 ** spec.decimals).muln(p.treasuryPct).divn(100)), `80 ${spec.symbol} en la tesorería`);
+
+    // piso: migrar, venta de pánico, recompra y quema
+    await oc.migrate(r);
+    const mine = await oc.tokenBalance(r.baseAta(net.payer.publicKey));
+    await oc.dammSell(r, mine.muln(6).divn(10));
+    const before = await oc.backing(r);
+    const amount = await oc.suggestDefend(r);
+    assert.ok(amount.gtn(0));
+    await oc.defendFloor(r, amount);
+    assert.ok((await oc.backing(r)).perUnit > before.perUnit, "el respaldo sube");
+
+    // tramo 1 pagado en la moneda del raise
+    const teamQuote = r.quoteAta(net.payer.publicKey);
+    const t0 = await oc.tokenBalance(teamQuote);
+    await oc.propose(r);
+    await net.advanceTime(p.challengeSecs + 1);
+    await oc.finalize(r);
+    const payable = funded.sub(funded.muln(p.floorReserveBps).divn(10_000));
+    assert.ok((await oc.tokenBalance(teamQuote)).sub(t0).eq(payable.muln(p.tranchesBps[0]).divn(10_000)), "tramo 1 en la moneda");
+
+    // tramo 2 rechazado con quórum → redención en la moneda
+    const voter = Keypair.generate();
+    await net.fund(voter.publicKey, LAMPORTS_PER_SOL);
+    const stake = (await circulating(oc, r)).muln(p.quorumBps + 500).divn(10_000);
+    await oc.transferBase(r, net.payer, voter.publicKey, stake);
+    await oc.propose(r);
+    const nonce = (await raiseOf(r)).proposalNonce;
+    await oc.reject(r, voter, stake);
+    await net.advanceTime(p.challengeSecs + 1);
+    await oc.finalize(r);
+    assert.equal(stateName((await raiseOf(r)).state), "liquidating");
+    await oc.withdrawVote(r, voter, nonce);
+    await oc.redeem(r, voter, stake);
+    assert.ok((await oc.tokenBalance(r.quoteAta(voter.publicKey))).gtn(0), `el holder cobra en ${spec.symbol}`);
+  });
+}

@@ -2,7 +2,8 @@
 // tramos. Liberado = tinta llena; propuesto = latón con cuenta atrás; bloqueado = guilloché.
 import { BN } from "@anchor-lang/core";
 import { stateName } from "../../../scripts/lib/owncurve";
-import { fmtSol } from "../lib/data";
+import type { Quote } from "../../../scripts/lib/owncurve";
+import { fmtAmt } from "../lib/data";
 import { useNow } from "../lib/useNow";
 
 type Props = {
@@ -11,9 +12,11 @@ type Props = {
   curve: { reserve: BN; threshold: BN } | null;
   treasuryPct: number;
   clockSkew?: number;
+  quote: Quote;
 };
 
-export function VaultBar({ state, raise, curve, treasuryPct, clockSkew = 0 }: Props) {
+export function VaultBar({ state, raise, curve, treasuryPct, clockSkew = 0, quote }: Props) {
+  const fmtSol = (v: BN) => fmtAmt(v, quote);
   const now = useNow(clockSkew);
 
   if (state === "pending" || state === "bonding") {
@@ -26,7 +29,7 @@ export function VaultBar({ state, raise, curve, treasuryPct, clockSkew = 0 }: Pr
         <figcaption className="vault-caption">
           <span className="big">{curve ? fmtSol(curve.reserve) : "0.000"}</span>
           <span>
-            of {curve ? fmtSol(curve.threshold) : "—"} SOL raised on the curve. At graduation {treasuryPct}% moves into
+            of {curve ? fmtSol(curve.threshold) : "—"} {quote.symbol} raised on the curve. At graduation {treasuryPct}% moves into
             the treasury.
           </span>
         </figcaption>
@@ -70,7 +73,7 @@ export function VaultBar({ state, raise, curve, treasuryPct, clockSkew = 0 }: Pr
       <ol className="seg-labels">
         {segments.map((s) => (
           <li key={s.i} style={{ flexGrow: width(s.bps) }}>
-            <span className="amt">{fmtSol(s.amount)} SOL</span>
+            <span className="amt">{fmtSol(s.amount)} {quote.symbol}</span>
             <span className="what">
               Tranche {s.i + 1}, {s.bps / 100}%:{" "}
               {state === "liquidating" && s.status !== "released"
@@ -87,7 +90,7 @@ export function VaultBar({ state, raise, curve, treasuryPct, clockSkew = 0 }: Pr
         ))}
         {floorBps > 0 && (
           <li className="floor" style={{ flexGrow: floorBps }}>
-            <span className="amt">{fmtSol(floorAmount)} SOL</span>
+            <span className="amt">{fmtSol(floorAmount)} {quote.symbol}</span>
             <span className="what">Price floor reserve: never paid to the team</span>
           </li>
         )}

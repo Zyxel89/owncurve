@@ -16,7 +16,7 @@ import { DEFAULT_PARAMS, OwnCurve, Raise, ps, stateName } from "./lib/owncurve";
 import { TxError, loadIdl, makeNet } from "./lib/net";
 
 const DO_MIGRATE = process.argv.includes("--migrate");
-const PARAMS = { ...DEFAULT_PARAMS, thresholdSol: Number(process.env.THRESHOLD_SOL ?? DEFAULT_PARAMS.thresholdSol) };
+const PARAMS = { ...DEFAULT_PARAMS, threshold: Number(process.env.THRESHOLD_SOL ?? DEFAULT_PARAMS.threshold) };
 
 type State = { programId: string; config: number[]; baseMint: number[]; sigs: Record<string, string> };
 

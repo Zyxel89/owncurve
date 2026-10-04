@@ -6,6 +6,9 @@ Links (fill in automatically by `owncurve.sh`):
 - Live app (devnet): https://zyxel89.github.io/owncurve/
 - Demo raise A (tranches + floor): https://zyxel89.github.io/owncurve/#/raise/7sDbgBXGy6o5AWs6NpCUG8EfuRCTBqzKG8SNZ8Prb7Ra
 - Demo raise B (rejected → redemptions): https://zyxel89.github.io/owncurve/#/raise/ERrfcHfstYDDgamvvRYS3XDkJ2LmZk8Dei6sMhSQV9tW
+- Demo raise C (raised in a stablecoin, tUSD): https://zyxel89.github.io/owncurve/#/raise/FLtDebR8xRPrLcmGTDwA1XSfn3JbFw9ts5APNrDEQW3m
+- Demo raise D (raised in a tokenized stock, tNVDAx, floor defended): https://zyxel89.github.io/owncurve/#/raise/FDtBpfVYe1NJKNWWiuieJueFPKfmDY6XJhJyRxjc1aQe
+- Mainnet study: https://github.com/Zyxel89/owncurve/blob/main/docs/MAINNET-STUDY.md
 - Program (devnet): https://explorer.solana.com/address/GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh?cluster=devnet
 - Video: (YouTube/Loom link)
 
@@ -13,7 +16,8 @@ Links (fill in automatically by `owncurve.sh`):
 
 Ownership coins on Meteora: the bonding curve's raise goes into an on-chain treasury that pays
 the team one evidence-backed milestone at a time, lets holders stop a payment and take their
-share back, and buys the token back below its backing.
+share back, and buys the token back below its backing. Raise in SOL, USDC or tokenized stocks;
+govern it from the web, a CLI, an Agent Skill or an MCP server.
 
 ## Description (≈150 words)
 
@@ -26,7 +30,9 @@ a pro-rata redemption pool. After migration to DAMM v2 the treasury owns the LP 
 earns its fees, and a floor reserve buys the token back whenever it trades below its backing
 — the program refuses to pay more than backing and burns what it buys. `bind_pool` verifies the
 whole DBC config before anyone buys (no creator LP, no mint authority, fee to treasury).
-An Agent Skill lets AI agents launch, audit and govern raises.
+Raises can be quoted in SOL, any SPL token (USDC) or any Token-2022 token (xStocks). An MCP
+server and an Agent Skill let AI agents launch, audit and govern raises, simulating every write
+unless confirmed. A mainnet study of every DBC config and launch measures the gap OwnCurve closes.
 
 ## How it uses Meteora
 
@@ -41,9 +47,22 @@ An Agent Skill lets AI agents launch, audit and govern raises.
 
 ## Proof
 
-- 23 integration tests against the real DBC and DAMM v2 binaries (LiteSVM), a CLI test, and a
-  browser E2E test that drives the whole lifecycle in Chromium.
-- Full lifecycle on devnet: `docs/DEMO-devnet.md`.
+- Its own Anchor program (12 instructions) doing CPI into DBC and DAMM v2, not an SDK wrapper.
+- 25 integration tests against the real DBC and DAMM v2 binaries (LiteSVM), including full
+  lifecycles in an SPL stablecoin and a Token-2022 tokenized stock; CLI, MCP and mainnet-study tests;
+  a browser E2E test that drives the whole lifecycle in Chromium.
+- Four raises on devnet with every transaction linked: `docs/DEMO-devnet.md`.
+- security.txt embedded in the program, IDL on-chain, `scripts/verify.sh` matches the devnet binary to the source.
+
+## Judging criteria → where to look
+
+| Criterion | Evidence |
+| --- | --- |
+| Depth of Meteora integration | Treasury PDA is DBC `fee_claimer`; CPI `withdraw_migration_fee`, `claim_trading_fee`, `partner_withdraw_surplus`; DBC→DAMM v2 migration; CPI DAMM v2 `claim_position_fee` and `swap` |
+| Technical execution | Anchor program + 25 integration tests on real Meteora binaries, E2E, CLI/MCP tests, verify script |
+| Originality and taste | Milestone escrow with on-chain evidence, holder objections → redemptions, self-defending price floor |
+| Impact potential | Any DBC launchpad can add "ownership coin" mode; works for stablecoin and RWA (xStock) raises; agents can be holder guardians |
+| Traction | Live app, four devnet raises, mainnet study of every DBC launch |
 
 ## Video script (~2 min; check the form for its limits)
 
