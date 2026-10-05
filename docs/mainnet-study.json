@@ -1,0 +1,177 @@
+{
+  "generatedAt": "2026-10-05T02:19:56.356Z",
+  "slot": 453440898,
+  "configs": 534981,
+  "launches": 1738512,
+  "launchesWithKnownConfig": 1738505,
+  "unknownConfigLaunches": 7,
+  "weightedMigrationFeePct": 0.6968792151877619,
+  "metrics": {
+    "feeToWallet": {
+      "configs": 18276,
+      "configsPct": 3.4161960892069065,
+      "launches": 66115,
+      "launchesPct": 3.8029801467352695
+    },
+    "feeToProgram": {
+      "configs": 1165,
+      "configsPct": 0.21776474304694934,
+      "launches": 2333,
+      "launchesPct": 0.13419576015024404
+    },
+    "feeAtLeast50": {
+      "configs": 3010,
+      "configsPct": 0.5626368039238777,
+      "launches": 6594,
+      "launchesPct": 0.37929140267068545
+    },
+    "unlockedLp": {
+      "configs": 210833,
+      "configsPct": 39.409436970658774,
+      "launches": 1105825,
+      "launchesPct": 63.60781245955577
+    },
+    "mintAuthorityKept": {
+      "configs": 3105,
+      "configsPct": 0.5803944439148306,
+      "launches": 9621,
+      "launchesPct": 0.5534065188193305
+    },
+    "ownCurveGrade": {
+      "configs": 180443,
+      "configsPct": 33.72886139881603,
+      "launches": 177284,
+      "launchesPct": 10.197497274957506
+    },
+    "quoteSol": {
+      "configs": 474977,
+      "configsPct": 88.78390073666168,
+      "launches": 1491277,
+      "launchesPct": 85.77927587208549
+    },
+    "quoteStable": {
+      "configs": 46134,
+      "configsPct": 8.623483824659193,
+      "launches": 232123,
+      "launchesPct": 13.351874167747576
+    },
+    "quoteOther": {
+      "configs": 13870,
+      "configsPct": 2.5926154386791307,
+      "launches": 15105,
+      "launchesPct": 0.8688499601669251
+    }
+  },
+  "topConfigs": [
+    {
+      "address": "FbKf76ucsQssF7XZBuzScdJfugtsSKwZFYztKsMEhWZM",
+      "feeClaimer": "5wkyL2FLEcyUUgc3UeGntHTAfWfzDrVuxMnaMm7792Gk",
+      "feeClaimerIsProgram": false,
+      "migrationFeePct": 0,
+      "creatorShareOfFeePct": 0,
+      "unlockedLpPct": 0,
+      "mintAuthorityKept": false,
+      "quote": "USDC",
+      "launches": 175499
+    },
+    {
+      "address": "38RRrtvAbAYnmCDjym31nvw5MYQGi3LQJQ6Gp6RbT7DU",
+      "feeClaimer": "CnwRFKYbqupZztkKeVVZKRuAUnWDzAZJ4efgYiSvvFhn",
+      "feeClaimerIsProgram": false,
+      "migrationFeePct": 0,
+      "creatorShareOfFeePct": 0,
+      "unlockedLpPct": 100,
+      "mintAuthorityKept": false,
+      "quote": "SOL",
+      "launches": 59803
+    },
+    {
+      "address": "2CY1F7f3wPM6xhjfSo4M81N9sSBkVhARf6mJnPiBSFuB",
+      "feeClaimer": "4EkpEHarHkakfxSgfVhJDTrBQWnoYwYCCUW3PV4TompU",
+      "feeClaimerIsProgram": false,
+      "migrationFeePct": 0,
+      "creatorShareOfFeePct": 0,
+      "unlockedLpPct": 100,
+      "mintAuthorityKept": false,
+      "quote": "SOL",
+      "launches": 21045
+    },
+    {
+      "address": "7SXEnhGRXVkR5LEE4o6xXYwcX6QJbFemMS3mbmMRHSDn",
+      "feeClaimer": "9supzj2Nbnjut3r9UFfWE2RiuAenQMoYaNtZXmmtm5oC",
+      "feeClaimerIsProgram": false,
+      "migrationFeePct": 10,
+      "creatorShareOfFeePct": 0,
+      "unlockedLpPct": 0,
+      "mintAuthorityKept": false,
+      "quote": "SOL",
+      "launches": 20220
+    },
+    {
+      "address": "BkoMF8PzYwoVQTKcQ6uNeQrHytw1jJN6ig4JzjcKS3iF",
+      "feeClaimer": "Fbz8Y9Yg6TkAgA7beWj8eqog3qF6XTrm8xSBuL7FphUW",
+      "feeClaimerIsProgram": true,
+      "migrationFeePct": 0,
+      "creatorShareOfFeePct": 0,
+      "unlockedLpPct": 0,
+      "mintAuthorityKept": false,
+      "quote": "SOL",
+      "launches": 12619
+    },
+    {
+      "address": "EiP739P1dZRyqHMuqbKatyhiBr7cC1ge4iT82MCF1zcn",
+      "feeClaimer": "Dd2VQkx4zMp2uR1snZP2m9c8dbfzwmib4GZtTYqz5XET",
+      "feeClaimerIsProgram": false,
+      "migrationFeePct": 0,
+      "creatorShareOfFeePct": 0,
+      "unlockedLpPct": 100,
+      "mintAuthorityKept": false,
+      "quote": "SOL",
+      "launches": 9122
+    },
+    {
+      "address": "J1XxMw9ePUTAtsHLiaRbg9UMSXJTSy1CNjUFizdh86f3",
+      "feeClaimer": "J1XxMw9ePUTAtsHLiaRbg9UMSXJTSy1CNjUFizdh86f3",
+      "feeClaimerIsProgram": false,
+      "migrationFeePct": 0,
+      "creatorShareOfFeePct": 0,
+      "unlockedLpPct": 100,
+      "mintAuthorityKept": false,
+      "quote": "SOL",
+      "launches": 8802
+    },
+    {
+      "address": "GybkUNYVNk1FZMt9myAfvpSVgoKBgaueMTvszwBN4qYx",
+      "feeClaimer": "BKPxAdgwPHXE3ZPZt5XsAovDgUaUufHgZnSAZ3eRWQNW",
+      "feeClaimerIsProgram": false,
+      "migrationFeePct": 0,
+      "creatorShareOfFeePct": 0,
+      "unlockedLpPct": 0,
+      "mintAuthorityKept": false,
+      "quote": "SOL",
+      "launches": 7285
+    },
+    {
+      "address": "7UNpFBfTdWrcfS7aBQzEaPgZCfPJe8BDgHzwmWUZaMaF",
+      "feeClaimer": "A9z3ngVK4aSRdCR8i6F2wQh9EbH7CPojyvZuBRxNot8o",
+      "feeClaimerIsProgram": false,
+      "migrationFeePct": 0,
+      "creatorShareOfFeePct": 0,
+      "unlockedLpPct": 100,
+      "mintAuthorityKept": false,
+      "quote": "SOL",
+      "launches": 7138
+    },
+    {
+      "address": "48yNN4EC1YKsioWCmqQsZdJ8TZVaXetwncE3En5BpZ84",
+      "feeClaimer": "4QFQX8GPSsxtsiJXLApQPv2KAA9kBmFpBF3HqRR5Ae4s",
+      "feeClaimerIsProgram": false,
+      "migrationFeePct": 0,
+      "creatorShareOfFeePct": 0,
+      "unlockedLpPct": 90,
+      "mintAuthorityKept": false,
+      "quote": "SOL",
+      "launches": 7051
+    }
+  ]
+}
