@@ -22,6 +22,12 @@ the team one evidence-backed milestone at a time, lets holders stop a payment an
 share back, and buys the token back below its backing. Raise in SOL, USDC or tokenized stocks;
 govern it from the web, a CLI, an Agent Skill or an MCP server.
 
+## The numbers (mainnet, read on-chain by `scripts/study.ts`)
+
+- 1,738,512 Meteora DBC launches over 534,981 configs.
+- 63.6% of launches let someone withdraw the graduated liquidity. OwnCurve: 0%.
+- 10.1% meet four basic holder guarantees. OwnCurve: 100%, checked on-chain before the first buy.
+
 ## Description (≈150 words)
 
 Most launchpad raises go straight to a wallet. OwnCurve makes Meteora's Dynamic Bonding Curve
@@ -70,11 +76,18 @@ DBC launch, and a mainnet study of every DBC config and launch measures the gap 
 | Impact potential | Any DBC launchpad can add "ownership coin" mode; works for stablecoin and RWA (xStock) raises; agents can be holder guardians |
 | Traction | Live app, six devnet raises, rug check that works on any mainnet DBC launch, mainnet study of every DBC launch |
 
-## Video script (~2 min; check the form for its limits)
+## Pitch video (max 3 min) — the "why"
 
-1. **0:00–0:15 Problem.** "Token raises go to a wallet on day one. If the team stops shipping, holders hold nothing."
-2. **0:15–0:35 Idea.** Show the raise page: the vault bar. "OwnCurve sends Meteora's bonding-curve raise to a treasury that pays the team one milestone at a time."
-3. **0:35–1:05 Live.** Launch a raise with the test wallet, buy, "Move the raise into the treasury". Point at the guarantees checked on-chain.
-4. **1:05–1:25 Evidence + objection.** Request a tranche with a link; switch to a holder, see the link and SHA-256, object; settle → liquidation → redeem.
-5. **1:25–1:45 Floor.** Demo raise A: price vs backing panel, "Buy back below backing", tokens burned, backing up.
-6. **1:45–2:00 Close.** "Agent Skill: your AI can audit milestones and object for you. Built on DBC + DAMM v2, open source, live on devnet."
+1. **0:00–0:20 · Who.** "I'm [name], a Rust developer from [country]. I built OwnCurve for this hackathon."
+2. **0:20–0:55 · Problem, with data.** Show the home page stats. "We read all 1.7 million Meteora DBC launches on mainnet. In 63.6% of them someone can pull the liquidity after graduation. Only one in ten meets four basic holder guarantees. Meteora launched Bedrock this year to protect holders with lawyers. We think code should do it."
+3. **0:55–1:40 · Solution.** Vault bar of the "floor defended" raise. "OwnCurve turns a DBC launch into an ownership coin. The raise sits in an on-chain treasury. The team is paid one milestone at a time, each with a public link and a hash on-chain. Holders can stop a payment and take their share back. If the team goes silent, the treasury goes back to holders. And Bedrock's takeover clause runs as code: nobody can take the project over without paying every holder the TWAP plus 30%."
+4. **1:40–2:20 · Proof.** Rug check a real mainnet token live (grade D or F), then an OwnCurve raise (A+). "Six raises live on devnet, in SOL, a stablecoin and a tokenized stock."
+5. **2:20–2:50 · Why it wins / next.** "Any launchpad on Meteora can turn this on for its creators. Next: audit, mainnet, and an integration with Bedrock launchpads."
+
+## Technical demo (2–3 min) — the "how"
+
+1. **0:00–0:25 · Architecture.** README diagram: Anchor program, treasury PDA as DBC `fee_claimer`, CPIs into DBC (`withdraw_migration_fee`, `claim_trading_fee`, `partner_withdraw_surplus`) and DAMM v2 (`claim_position_fee`, `swap`).
+2. **0:25–1:10 · Live in the app.** Launch a raise with the test wallet (show the guard fields), buy to graduation, "Move the raise into the treasury" (harvest + arm_guard in one tx), request a tranche with evidence, object from a second wallet, settle → redemptions.
+3. **1:10–1:40 · Price floor + Bedrock.** Raise A panel: buyback below backing and burn. Raise E: `observe` builds the TWAP from DAMM v2 (`sqrt_price` read from the pool, owner and mints checked), `tender_offer` deposits until each token redeems at TWAP × 1.3.
+4. **1:40–2:10 · Agents.** Claude Desktop with the OwnCurve MCP server: "check the pending tranche of raise X" → it reads the evidence, explains, simulates `object`, and only sends with confirm.
+5. **2:10–2:40 · Quality.** `npm test` (29 integration tests on the real Meteora binaries), the CLI/MCP/scan/study tests, the Chromium E2E, `scripts/verify.sh` matching the devnet binary, security.txt.

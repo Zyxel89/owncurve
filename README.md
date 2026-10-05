@@ -40,6 +40,16 @@ audit milestone evidence and act for holders, with every write simulated unless 
 
 Built for the Colosseum Crypto World's Fair — "Best use of Meteora's DBC" sidetrack.
 
+## Why: Meteora DBC on mainnet today
+
+We read every Meteora DBC config (534,981) and launch (1,738,512) on mainnet
+([`docs/MAINNET-STUDY.md`](docs/MAINNET-STUDY.md)):
+
+- **63.6%** of launches let a partner or creator **withdraw graduated liquidity**. OwnCurve: 0%.
+- Only **10.1%** meet four basic holder guarantees (program-controlled fee, no creator cut, locked LP,
+  no mint authority). Every OwnCurve raise meets them, enforced by `bind_pool`.
+- **3.8%** pay a graduation fee straight to a wallet; OwnCurve routes it to a treasury that pays per milestone.
+
 ## Try it
 
 - **Live app (Solana devnet):** https://zyxel89.github.io/owncurve/ — click **Use a test wallet**, or connect Phantom / Solflare / Backpack set to devnet.

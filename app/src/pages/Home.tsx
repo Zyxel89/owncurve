@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import featuredCfg from "../featured.json";
+import study from "../study.json";
 import { RaiseRow, listRaises, readOnlyClient, usePoll } from "../lib/data";
 
 const fmt = (v: number) => v.toLocaleString("en-US", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
@@ -34,9 +35,37 @@ export function Home() {
           OwnCurve sends what a Meteora bonding curve raises into an on-chain treasury. The team is paid one milestone
           at a time, and holders can stop a payment and take their share back.
         </p>
-        <a className="btn primary" href="#/new">
-          Launch a raise
-        </a>
+        <div className="lede-buttons">
+          <a className="btn primary" href="#/new">
+            Launch a raise
+          </a>
+          <a className="btn" href="#/scan">
+            Rug-check a Meteora token
+          </a>
+        </div>
+      </section>
+
+      <section className="stats" aria-label="Meteora DBC on mainnet today">
+        <div>
+          <strong>{study.unlockedLpPct}%</strong>
+          <span>
+            of {(study.launches / 1e6).toFixed(2)}M Meteora DBC launches let someone withdraw the graduated liquidity.
+            OwnCurve: <b>0%</b>.
+          </span>
+        </div>
+        <div>
+          <strong>{study.allFourPct}%</strong>
+          <span>meet the four basic holder guarantees. Every OwnCurve raise meets them, checked on-chain.</span>
+        </div>
+        <div>
+          <strong>{study.feeToWalletPct}%</strong>
+          <span>
+            pay a graduation fee straight to a wallet. OwnCurve sends it to a treasury that pays per milestone.{" "}
+            <a href="https://github.com/Zyxel89/owncurve/blob/main/docs/MAINNET-STUDY.md" target="_blank" rel="noreferrer">
+              Mainnet study
+            </a>
+          </span>
+        </div>
       </section>
 
       <section aria-labelledby="ledger-title" className="ledger">

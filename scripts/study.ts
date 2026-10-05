@@ -9,7 +9,6 @@
 //   MAINNET_RPC=https://... npx tsx scripts/study.ts        (needs getProgramAccounts on mainnet)
 //
 // Output: docs/MAINNET-STUDY.md and docs/mainnet-study.json
-import { DynamicBondingCurveClient } from "@meteora-ag/dynamic-bonding-curve-sdk";
 import { Connection, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import fs from "fs";
@@ -45,16 +44,12 @@ async function main() {
   const url = process.env.MAINNET_RPC;
   if (!url) throw new Error("Set MAINNET_RPC to a mainnet RPC that allows getProgramAccounts");
   const conn = new Connection(url, { commitment: "confirmed", disableRetryOnRateLimit: false });
-  const dbc = new DynamicBondingCurveClient(conn, "confirmed");
-  const coder = (dbc.state as any).program.coder;
   const slot = await conn.getSlot();
   console.log(`  slot ${slot}`);
 
-  // 1. Configs
-  console.log("  … reading every DBC config");
-  const rawConfigs = await withRetry("configs", () =>
-    conn.getProgramAccounts(DBC, { filters: [{ memcmp: { offset: 0, bytes: bs58.encode(CONFIG_DISC) } }] }),
-  );
+  // 1. Configs: only the bytes we need (dataSlice) and sharded by the first byte of fee_claimer,
+  //    because mainnet has hundreds of thousands of DBC configs (one per launch on many launchpads).
+  console.log("  … reading every DBC config (256 shards)");
   type Cfg = {
     address: string;
     feeClaimer: string;
@@ -67,58 +62,73 @@ async function main() {
     launches: number;
   };
   const configs = new Map<string, Cfg>();
-  for (const { pubkey, account } of rawConfigs) {
-    try {
-      const c = coder.accounts.decode("poolConfig", account.data);
-      const feeClaimer = new PublicKey(c.feeClaimer);
-      const qm = new PublicKey(c.quoteMint).toBase58();
-      configs.set(pubkey.toBase58(), {
-        address: pubkey.toBase58(),
-        feeClaimer: feeClaimer.toBase58(),
-        feeClaimerIsProgram: !PublicKey.isOnCurve(feeClaimer.toBytes()),
-        migrationFeePct: Number(c.migrationFeePercentage),
-        creatorShareOfFeePct: Number(c.creatorMigrationFeePercentage),
-        unlockedLpPct: Number(c.partnerLiquidityPercentage) + Number(c.creatorLiquidityPercentage),
-        mintAuthorityKept: MINT_AUTHORITY_KEPT.has(Number(c.tokenUpdateAuthority)),
-        quote: QUOTES[qm] ?? "other",
-        launches: 0,
-      });
-    } catch {
-      /* versión de cuenta desconocida */
-    }
-  }
-  console.log(`  ${configs.size} configs`);
+  const SLICE_FROM = 8; // PoolConfig, Meteora DBC IDL offsets
+  const SLICE_LEN = 241; // quote_mint … creator_migration_fee_percentage
+  const parseConfig = (address: string, d: Buffer) => {
+    const at = (off: number) => (d.length >= 1048 ? off : off - SLICE_FROM); // a local RPC may ignore dataSlice
+    const pk = (off: number) => new PublicKey(d.subarray(at(off), at(off) + 32));
+    const u8 = (off: number) => d[at(off)];
+    const feeClaimer = pk(40);
+    const qm = pk(8).toBase58();
+    configs.set(address, {
+      address,
+      feeClaimer: feeClaimer.toBase58(),
+      feeClaimerIsProgram: !PublicKey.isOnCurve(feeClaimer.toBytes()),
+      migrationFeePct: u8(247),
+      creatorShareOfFeePct: u8(248),
+      unlockedLpPct: u8(240) + u8(242), // partner + creator liquidity (unlocked)
+      mintAuthorityKept: MINT_AUTHORITY_KEPT.has(u8(246)),
+      quote: QUOTES[qm] ?? "other",
+      launches: 0,
+    });
+  };
+  const runShards = async (label: string, fetchShard: (b: number) => Promise<void>) => {
+    const shards = Array.from({ length: 256 }, (_, b) => b);
+    let done = 0;
+    const worker = async () => {
+      for (;;) {
+        const b = shards.shift();
+        if (b === undefined) return;
+        await withRetry(`${label} shard ${b}`, () => fetchShard(b), 6);
+        if (++done % 32 === 0) console.log(`    ${label}: ${done}/256 shards`);
+      }
+    };
+    await Promise.all(Array.from({ length: Number(process.env.STUDY_CONCURRENCY ?? 4) }, worker));
+  };
+  await runShards("configs", async (b) => {
+    const rows = await conn.getProgramAccounts(DBC, {
+      dataSlice: { offset: SLICE_FROM, length: SLICE_LEN },
+      filters: [
+        { dataSize: 1048 },
+        { memcmp: { offset: 0, bytes: bs58.encode(CONFIG_DISC) } },
+        { memcmp: { offset: 40, bytes: bs58.encode(Uint8Array.from([b])) } },
+      ],
+    });
+    for (const { pubkey, account } of rows) parseConfig(pubkey.toBase58(), account.data);
+  });
+  console.log(`  ${configs.size.toLocaleString("en-US")} configs`);
 
-  // 2. Launches per config: VirtualPool.config only, sharded by its first byte to keep responses small
+  // 2. Launches per config: VirtualPool.config only, sharded by its first byte
   console.log("  … counting launches per config (256 shards)");
   let launches = 0;
   let unknown = 0;
-  const shards = Array.from({ length: 256 }, (_, b) => b);
-  const worker = async () => {
-    for (;;) {
-      const b = shards.shift();
-      if (b === undefined) return;
-      const rows = await withRetry(`pools shard ${b}`, () =>
-        conn.getProgramAccounts(DBC, {
-          dataSlice: { offset: POOL_CONFIG_OFFSET, length: 32 },
-          filters: [
-            { memcmp: { offset: 0, bytes: bs58.encode(POOL_DISC) } },
-            { memcmp: { offset: POOL_CONFIG_OFFSET, bytes: bs58.encode(Uint8Array.from([b])) } },
-          ],
-        }),
-      );
-      for (const { account } of rows) {
-        const d = account.data;
-        const key = new PublicKey(d.length === 32 ? d : d.subarray(POOL_CONFIG_OFFSET, POOL_CONFIG_OFFSET + 32)).toBase58();
-        const c = configs.get(key);
-        launches++;
-        if (c) c.launches++;
-        else unknown++;
-      }
-      if (b % 32 === 31) console.log(`    ${b + 1}/256 shards · ${launches.toLocaleString("en-US")} launches`);
+  await runShards("launches", async (b) => {
+    const rows = await conn.getProgramAccounts(DBC, {
+      dataSlice: { offset: POOL_CONFIG_OFFSET, length: 32 },
+      filters: [
+        { memcmp: { offset: 0, bytes: bs58.encode(POOL_DISC) } },
+        { memcmp: { offset: POOL_CONFIG_OFFSET, bytes: bs58.encode(Uint8Array.from([b])) } },
+      ],
+    });
+    for (const { account } of rows) {
+      const d = account.data;
+      const key = new PublicKey(d.length === 32 ? d : d.subarray(POOL_CONFIG_OFFSET, POOL_CONFIG_OFFSET + 32)).toBase58();
+      const c = configs.get(key);
+      launches++;
+      if (c) c.launches++;
+      else unknown++;
     }
-  };
-  await Promise.all(Array.from({ length: 4 }, worker));
+  });
 
   // 3. Metrics, by config and weighted by launches
   const all = [...configs.values()];
