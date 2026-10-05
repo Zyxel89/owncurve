@@ -45,7 +45,7 @@ const call = async (name: string, args: Record<string, unknown> = {}) => {
 test("el servidor MCP expone las herramientas de OwnCurve y simula antes de escribir", { timeout: 300_000 }, async () => {
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
-  for (const n of ["owncurve_list", "owncurve_show", "owncurve_launch", "owncurve_propose", "owncurve_object", "owncurve_defend_floor", "owncurve_redeem"])
+  for (const n of ["owncurve_list", "owncurve_show", "owncurve_launch", "owncurve_propose", "owncurve_object", "owncurve_defend_floor", "owncurve_redeem", "owncurve_tender_offer", "owncurve_declare_abandoned", "owncurve_observe"])
     assert.ok(names.includes(n), `falta ${n}`);
   const launch = tools.find((t) => t.name === "owncurve_launch")!;
   assert.ok((launch.inputSchema as any).properties.confirm, "las escrituras llevan `confirm`");

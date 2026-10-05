@@ -56,11 +56,17 @@ export type RaiseParams = {
   challengeSecs: number;
   quorumBps: number;
   floorReserveBps: number; // parte de lo recaudado que nunca se paga: respalda el piso de precio
+  /** Protecciones automáticas (cuenta Guard): equipo fantasma y cláusula Bedrock en cadena. */
+  guard?: GuardParams | null;
   // Solo para tests de seguridad: configs DBC "maliciosas".
   feeClaimer?: PublicKey;
   creatorMigrationFeePct?: number;
   creatorUnlockedLpPct?: number;
 };
+
+export type GuardParams = { inactivitySecs: number; buyoutPremiumBps: number; twapWindowSecs: number };
+/** Valores de devnet (minutos, para poder enseñarlo); en mainnet serían semanas y +30%. */
+export const DEFAULT_GUARD: GuardParams = { inactivitySecs: 300, buyoutPremiumBps: 3000, twapWindowSecs: 120 };
 
 export const DEFAULT_PARAMS: RaiseParams = {
   threshold: 0.5,
@@ -69,6 +75,7 @@ export const DEFAULT_PARAMS: RaiseParams = {
   challengeSecs: 60,
   quorumBps: 1000,
   floorReserveBps: 2000,
+  guard: DEFAULT_GUARD,
 };
 
 export type Evidence = { uri: string; hash: number[] };
@@ -174,6 +181,9 @@ export class Raise {
   }
   get treasury() {
     return PublicKey.findProgramAddressSync([Buffer.from("treasury"), this.config.toBuffer()], this.pid)[0];
+  }
+  get guard() {
+    return PublicKey.findProgramAddressSync([Buffer.from("guard"), this.raise.toBuffer()], this.pid)[0];
   }
   get escrow() {
     return PublicKey.findProgramAddressSync([Buffer.from("escrow"), this.raise.toBuffer()], this.pid)[0];
@@ -290,7 +300,19 @@ export class OwnCurve {
       quoteMint: params.quote?.mint ?? NATIVE_MINT,
       ...curveConfig(params),
     });
-    const sig = await this.net.send("init_raise + create_config", [initRaise, ...createConfig.instructions], [
+    const guardIxs = params.guard
+      ? [
+          await this.m
+            .initGuard({
+              inactivitySecs: new BN(params.guard.inactivitySecs),
+              buyoutPremiumBps: params.guard.buyoutPremiumBps,
+              twapWindowSecs: new BN(params.guard.twapWindowSecs),
+            })
+            .accountsStrict({ team: team.publicKey, raise: r.raise, guard: r.guard, systemProgram: SystemProgram.programId })
+            .instruction(),
+        ]
+      : [];
+    const sig = await this.net.send("init_raise + create_config", [initRaise, ...createConfig.instructions, ...guardIxs], [
       configKp,
       team,
     ]);
@@ -420,7 +442,109 @@ export class OwnCurve {
         quoteTokenProgram: r.quoteProgram,
       })
       .instruction();
-    return this.net.send("harvest", [...this.ensureTreasuryAtas(r), ix], []);
+    // Si el raise tiene guard, su reloj de inactividad arranca en la misma transacción.
+    const arm = (await this.net.conn.getAccountInfo(r.guard))
+      ? [await this.m.armGuard().accountsStrict({ raise: r.raise, guard: r.guard }).instruction()]
+      : [];
+    return this.net.send("harvest", [...this.ensureTreasuryAtas(r), ix, ...arm], []);
+  }
+
+  // ---------------------------------------------------------------- guard
+  /** Estado del guard con el TWAP y el coste de una oferta pública calculados como el programa. */
+  async guardState(r: Raise) {
+    const g: any = await (this.program.account as any).guard.fetchNullable(r.guard);
+    if (!g) return null;
+    const now = Math.floor(Date.now() / 1000) + (await this.clockSkew());
+    const window = Number(g.twapWindowSecs);
+    const obs = (g.observations as any[])
+      .slice(0, g.obsCount)
+      .map((o) => ({ ts: Number(o.ts), priceQ64: BigInt(o.priceQ64.toString()) }));
+    const inWindow = obs.filter((o) => o.ts >= now - window);
+    const oldest = inWindow.length ? Math.min(...inWindow.map((o) => o.ts)) : now;
+    const twapReady = inWindow.length >= 3 && now - oldest >= window / 2;
+    const twapQ64 = inWindow.length ? inWindow.reduce((a, o) => a + o.priceQ64, 0n) / BigInt(inWindow.length) : 0n;
+    const buyoutQ64 = (twapQ64 * BigInt(10_000 + g.buyoutPremiumBps)) / 10_000n;
+    const raise = await r.fetch();
+    const circulating = BigInt((await this.mintSupply(r.baseMint)).sub(await this.tokenBalance(r.treasuryBase)).toString());
+    const treasury = BigInt((await this.tokenBalance(r.treasuryQuote)).toString());
+    const required = (buyoutQ64 * circulating) >> 64n;
+    const deposit = required > treasury ? required - treasury : 0n;
+    const lastObs = obs.length ? Math.max(...obs.map((o) => o.ts)) : null;
+    const silentSince = Math.max(Number(g.armedAt), Number(raise.proposalEndsAt));
+    return {
+      inactivitySecs: Number(g.inactivitySecs),
+      armedAt: Number(g.armedAt),
+      abandonableAt: Number(g.armedAt) > 0 ? silentSince + Number(g.inactivitySecs) : null,
+      buyoutPremiumBps: g.buyoutPremiumBps as number,
+      twapWindowSecs: window,
+      observeIntervalSecs: Number(g.observeIntervalSecs),
+      nextObserveAt: lastObs === null ? 0 : lastObs + Number(g.observeIntervalSecs),
+      observations: obs,
+      observationsInWindow: inWindow.length,
+      twapReady,
+      /** precios en unidades atómicas de moneda por unidad atómica de token */
+      twap: Number(twapQ64) / 2 ** 64,
+      buyoutPrice: Number(buyoutQ64) / 2 ** 64,
+      buyoutDeposit: new BN(deposit.toString()),
+      acquirer: new PublicKey(g.acquirer),
+      acquired: !new PublicKey(g.acquirer).equals(PublicKey.default),
+      abandoned: Boolean(g.abandoned),
+      now,
+    };
+  }
+
+  private async clockSkew() {
+    try {
+      const t = await this.net.conn.getBlockTime(await this.net.conn.getSlot());
+      return t ? t - Math.floor(Date.now() / 1000) : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  async armGuard(r: Raise) {
+    const ix = await this.m.armGuard().accountsStrict({ raise: r.raise, guard: r.guard }).instruction();
+    return this.net.send("arm_guard", [ix], []);
+  }
+
+  async declareAbandoned(r: Raise) {
+    const ix = await this.m.declareAbandoned().accountsStrict({ raise: r.raise, guard: r.guard }).instruction();
+    return this.net.send("declare_abandoned", [ix], []);
+  }
+
+  async observe(r: Raise) {
+    const ix = await this.m
+      .observe()
+      .accountsStrict({ raise: r.raise, guard: r.guard, dammPool: await this.dammPool(r) })
+      .instruction();
+    return this.net.send("observe", [ix], []);
+  }
+
+  /** Oferta pública: `acquirer` aporta lo que falte para pagar TWAP × (1 + prima) por token. */
+  async tenderOffer(r: Raise, maxDeposit: BN, acquirer = this.net.payer) {
+    const ix = await this.m
+      .tenderOffer(maxDeposit)
+      .accountsStrict({
+        acquirer: acquirer.publicKey,
+        raise: r.raise,
+        guard: r.guard,
+        treasury: r.treasury,
+        treasuryQuote: r.treasuryQuote,
+        treasuryBase: r.treasuryBase,
+        acquirerQuote: r.quoteAta(acquirer.publicKey),
+        quoteMint: r.quoteMint,
+        baseMint: r.baseMint,
+        quoteTokenProgram: r.quoteProgram,
+      })
+      .instruction();
+    const pre = r.isSol
+      ? [
+          createAssociatedTokenAccountIdempotentInstruction(acquirer.publicKey, r.quoteAta(acquirer.publicKey), acquirer.publicKey, r.quoteMint, r.quoteProgram),
+          SystemProgram.transfer({ fromPubkey: acquirer.publicKey, toPubkey: r.quoteAta(acquirer.publicKey), lamports: BigInt(maxDeposit.toString()) }),
+          createSyncNativeInstruction(r.quoteAta(acquirer.publicKey)),
+        ]
+      : [];
+    return this.net.send("tender_offer", [...pre, ix], [acquirer]);
   }
 
   async collectTradingFees(r: Raise) {

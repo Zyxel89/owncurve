@@ -10,7 +10,7 @@ rejection that reaches quorum turns the treasury into a pro-rata redemption pool
 After graduation the treasury also owns the DAMM v2 LP position, so it keeps earning
 trading fees forever.
 
-Three things no other launchpad does on-chain:
+Five things no other launchpad does on-chain:
 
 - **Evidence-backed milestones.** Every tranche request stores a link to the delivered work and
   the SHA-256 of what the team claims it shipped. Holders (or their AI agent) review it during
@@ -20,9 +20,20 @@ Three things no other launchpad does on-chain:
   holds per token, anyone can call `defend_floor`: the treasury buys tokens back through a CPI
   swap, **the program refuses to pay more than the backing**, and the tokens are burned, so the
   backing of every remaining token goes up.
+- **Meteora Bedrock's takeover clause, enforced by the program.** Bedrock protects holders
+  legally: an acquirer must buy everyone out at TWAP +30%. OwnCurve makes it code: the program
+  keeps its own TWAP from DAMM v2 price observations, and the only way to take a raise over is
+  `tender_offer`, which tops the treasury up until every circulating token redeems at
+  TWAP × (1 + premium). The acquirer becomes the team; holders redeem.
+- **A ghost-team switch.** If the team goes `inactivity` without requesting a tranche, anyone can
+  call `declare_abandoned` and the treasury becomes a redemption pool. Nobody has to vote.
 - **Raise in anything.** SOL, a stablecoin like USDC (SPL) or a tokenized stock like the xStocks
   (Token-2022): the program is token-interface generic, so the treasury, tranches, redemptions and
   floor buybacks all work in the raise currency.
+
+Plus a **rug check** for any Meteora launch: paste a mainnet token and see, from its on-chain DBC
+config, whether the raise goes to a wallet, the creator takes a cut, liquidity can be pulled or more
+tokens can be minted.
 
 And it is built for agents: an **MCP server** and an **Agent Skill** let any AI client read raises,
 audit milestone evidence and act for holders, with every write simulated unless confirmed.
@@ -36,6 +47,9 @@ Built for the Colosseum Crypto World's Fair — "Best use of Meteora's DBC" side
 - **A raise whose holders stopped the payment and redeemed the treasury:** https://zyxel89.github.io/owncurve/#/raise/ERrfcHfstYDDgamvvRYS3XDkJ2LmZk8Dei6sMhSQV9tW
 - **A raise in a stablecoin (tUSD, SPL like USDC):** https://zyxel89.github.io/owncurve/#/raise/FLtDebR8xRPrLcmGTDwA1XSfn3JbFw9ts5APNrDEQW3m
 - **A raise in a tokenized stock (tNVDAx, Token-2022 like xStocks) that defended its floor:** https://zyxel89.github.io/owncurve/#/raise/FDtBpfVYe1NJKNWWiuieJueFPKfmDY6XJhJyRxjc1aQe
+- **A raise taken over through the on-chain Bedrock clause (holders paid TWAP +30%):** https://zyxel89.github.io/owncurve/#/raise/8toF88iSKFRstDfZzsRNkHz2GBet84K5ztgBEkXyFXNN
+- **A raise whose team went silent, so the treasury went back to holders:** https://zyxel89.github.io/owncurve/#/raise/DVW29fmVR36A65xViVbuJNTzMMAvJro8vm4tpvX7MimF
+- **Rug check any Meteora launch (mainnet):** https://zyxel89.github.io/owncurve/#/scan
 - **Mainnet study, what DBC launches promise holders today:** [`docs/MAINNET-STUDY.md`](docs/MAINNET-STUDY.md)
 - **Every devnet transaction, step by step:** [`docs/DEMO-devnet.md`](docs/DEMO-devnet.md)
 - **Agent Skill and MCP server:** [`skills/owncurve/SKILL.md`](skills/owncurve/SKILL.md) · [`scripts/mcp.ts`](scripts/mcp.ts)
@@ -62,6 +76,9 @@ Funded --propose_release(evidence) + reject votes--> finalize
     quorum reached     -> Liquidating -> redeem (burn tokens, receive NAV share)
 Any time after launch: collect_trading_fees, collect_surplus, claim_lp_fees -> treasury
 After graduation, price < backing: defend_floor -> DAMM v2 swap (treasury pays) -> burn
+Guard (optional account, set at launch):
+    Funded + team silent for `inactivity` -> declare_abandoned -> Liquidating
+    observe (DAMM v2 price) x N -> TWAP -> tender_offer (pay holders TWAP + premium) -> Liquidating, team = acquirer
 ```
 
 ## Instructions
@@ -79,6 +96,11 @@ After graduation, price < backing: defend_floor -> DAMM v2 swap (treasury pays) 
 | `finalize` | anyone | Pays the tranche, or switches to liquidation if quorum was met |
 | `withdraw_vote` | holder | Returns locked tokens after finalize |
 | `redeem` | holder | In liquidation: burn tokens, receive a pro-rata share of the treasury |
+| `init_guard` | team | Ghost-team window, takeover premium and TWAP window (before funding) |
+| `arm_guard` | anyone | Starts the inactivity clock (bundled with `harvest`) |
+| `declare_abandoned` | anyone | Team silent past the window → treasury becomes a redemption pool |
+| `observe` | anyone | Records the DAMM v2 price (owner, discriminator and mints checked) into the guard's TWAP ring |
+| `tender_offer` | anyone | Takeover: deposit until every token redeems at TWAP × (1 + premium); acquirer becomes team |
 | `defend_floor` | anyone | CPI DAMM v2 `swap` paid by the treasury, only at or below backing; bought tokens are burned |
 
 ## On-chain guarantees (enforced by `bind_pool` / `init_raise`)
@@ -99,10 +121,11 @@ After graduation, price < backing: defend_floor -> DAMM v2 swap (treasury pays) 
 
 ## Devnet
 
-Program `GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh`. `scripts/demo.ts` runs four real raises:
+Program `GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh`. `scripts/demo.ts` runs six real raises:
 evidence-backed tranches with a defended floor (SOL), a rejected tranche that ends in redemptions
 (SOL), a raise in a stablecoin (tUSD) and a raise in a tokenized stock (tNVDAx) that defends its
-floor. Every transaction is linked in [`docs/DEMO-devnet.md`](docs/DEMO-devnet.md).
+floor, a raise taken over through the on-chain Bedrock clause, and a raise whose silent team lost
+the treasury to its holders. Every transaction is linked in [`docs/DEMO-devnet.md`](docs/DEMO-devnet.md).
 
 ## Web app
 
@@ -140,7 +163,7 @@ redemption).
 }
 ```
 
-13 tools (`owncurve_list`, `owncurve_show`, `owncurve_launch`, `owncurve_propose`, `owncurve_object`,
+16 tools (`owncurve_list`, `owncurve_show`, `owncurve_launch`, `owncurve_propose`, `owncurve_object`,
 `owncurve_settle`, `owncurve_redeem`, `owncurve_defend_floor`…). Reads are annotated read-only;
 writes take `confirm` and only **simulate** the transaction unless `confirm: true`.
 `tests/mcp.test.ts` drives it with the official MCP client.
@@ -163,10 +186,11 @@ npm run owncurve -- defend-floor <config>   # dry run; add --yes to send
 ```
 anchor build --skip-lint --tools-version v1.52 --arch v0
 npm ci
-CLUSTER=local npx tsx --test tests/owncurve.test.ts   # 25 integration tests, real DBC + DAMM v2 binaries
+CLUSTER=local npx tsx --test tests/owncurve.test.ts   # 29 integration tests, real DBC + DAMM v2 binaries
 npx tsx --test tests/cli.test.ts                      # the agent CLI end to end over JSON-RPC
 npx tsx --test tests/mcp.test.ts                      # the MCP server with the official MCP client
 npx tsx --test tests/study.test.ts                    # the mainnet study against a local validator
+npx tsx --test tests/scan.test.ts                     # the rug check (A+ for OwnCurve, D/F for a rug config)
 npm run e2e                                           # Chromium drives the app, incl. floor defense
 CLUSTER=local npx tsx scripts/f1.ts --migrate        # end-to-end flow in LiteSVM
 npx tsx scripts/f1.ts --migrate                      # same flow on devnet
@@ -174,6 +198,13 @@ npx tsx scripts/f1.ts --migrate                      # same flow on devnet
 
 Local tests need `local/dynamic_bonding_curve.so` (built from DBC source at f552f20) and
 `local/damm_v2.so` (DBC repo test fixture); `owncurve.sh` prepares both.
+
+## Rug check
+
+`#/scan` in the app (and `scripts/lib/scan.ts`) grades any Meteora DBC launch from its on-chain
+config: A+ for OwnCurve raises, then down for each red flag (graduation fee to a wallet, creator cut,
+unlocked LP, mint authority kept). It reads mainnet through the public RPC; looking up by token mint
+needs an RPC that allows `getProgramAccounts`, otherwise paste the DBC pool.
 
 ## Mainnet study
 

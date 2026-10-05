@@ -62,6 +62,9 @@ Every command prints JSON. Below, `owncurve` means `npx tsx scripts/cli.ts`.
 | `collect-fees <config>` | anyone | Curve trading fees → treasury |
 | `settle <config>` | anyone | After the window: pay the tranche, or open redemptions if quorum objected |
 | `defend-floor <config> [--spend X]` | anyone | Treasury buys back below backing and burns |
+| `observe <config>` | anyone | Record the DAMM v2 price into the raise's on-chain TWAP |
+| `declare-abandoned <config>` | anyone | Team silent past the guard window → holders can redeem the treasury |
+| `tender-offer <config> [--max X]` | anyone | Take the project over by paying every holder TWAP + premium |
 | `object <config> [--tokens T]` | holder | Lock tokens against the pending tranche (default: all) |
 | `unlock <config>` | holder | Return voted tokens after settlement |
 | `redeem <config> [--tokens T]` | holder | In liquidation: burn tokens for a pro-rata share of the treasury |
@@ -94,6 +97,13 @@ Every command prints JSON. Below, `owncurve` means `npx tsx scripts/cli.ts`.
 run `owncurve defend-floor <config> --yes`. The program refuses to pay more than the backing
 per token, so the buyback always raises the backing of the remaining tokens.
 
+### Protect holders automatically
+
+`show` returns `guard`. If `guard.ghostTeam.secondsLeft` is 0 and `can` has `declare-abandoned`,
+tell the user the team went silent and, with their OK, run it: the treasury opens for redemptions.
+For a takeover, `guard.bedrock` shows the TWAP, the buyout price and `depositToTakeOver`; run
+`observe` every `nextObserveInSecs` until `twapReady`.
+
 ## Errors
 
 | Error | Meaning |
@@ -109,4 +119,7 @@ per token, so the buyback always raises the backing of the remaining tokens.
 | `InvalidEvidence` | Evidence URL empty or longer than 160 characters |
 | `FloorBudgetExceeded` | Asked for more than the floor budget (reserve + fees − spent) |
 | `NothingToDefend` / slippage | Price is not below backing |
-| `InvalidGovernance` / `InvalidMilestones` | Launch parameters out of bounds |
+| `InvalidGovernance` / `InvalidMilestones` / `InvalidGuard` | Launch parameters out of bounds |
+| `TeamStillActive` | The team is still inside its activity window (or a tranche is pending) |
+| `TwapNotReady` / `ObservationTooSoon` | Run `observe` more times, spaced by the guard interval |
+| `BuyoutAboveMax` | The takeover costs more than `--max` |

@@ -69,6 +69,10 @@ test("la Agent Skill puede llevar un raise de punta a punta solo con el CLI", { 
   assert.ok(s.curve.complete && s.can.includes("harvest"), JSON.stringify(s.curve));
   await yes(cli(team, "harvest", config, "--yes"));
 
+  s = await cli(team, "show", config);
+  assert.equal(s.guard.ghostTeam.armed, true, "harvest arma el guard");
+  assert.equal(s.guard.bedrock.premiumPct, 30);
+
   // propose con evidencia: el hash queda en cadena y show lo devuelve
   const p = await cli(team, "propose", config, "--evidence", "https://example.com/m1", "--note", "M1 shipped", "--yes");
   assert.equal(p.ok, true, JSON.stringify(p));

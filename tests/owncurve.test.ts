@@ -4,7 +4,7 @@
 // Ejecutar:  CLUSTER=local npx tsx --test tests/owncurve.test.ts
 import { BN } from "@anchor-lang/core";
 import { SwapMode } from "@meteora-ag/dynamic-bonding-curve-sdk";
-import { Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { Keypair, LAMPORTS_PER_SOL, PublicKey } from "@solana/web3.js";
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { loadIdl, makeNet } from "../scripts/lib/net";
@@ -365,3 +365,87 @@ for (const spec of TEST_QUOTES) {
     assert.ok((await oc.tokenBalance(r.quoteAta(voter.publicKey))).gtn(0), `el holder cobra en ${spec.symbol}`);
   });
 }
+
+// ------------------------------------------------------------------ guard: equipo fantasma y Bedrock en cadena
+test("2.10 equipo fantasma: sin pedir tramos durante `inactivity`, cualquiera devuelve la tesorería a los holders", async () => {
+  const { oc, net, r, p } = await fundedRaise();
+  const g = await oc.guardState(r);
+  assert.ok(g && g.armedAt > 0, "harvest arma el guard en la misma transacción");
+  await expectError(oc.declareAbandoned(r), "TeamStillActive");
+  // pedir un tramo reinicia el reloj; mientras está pendiente no se puede declarar abandono
+  await oc.propose(r);
+  await net.advanceTime(p.guard!.inactivitySecs + 5);
+  await expectError(oc.declareAbandoned(r), "TeamStillActive");
+  await oc.finalize(r);
+  await expectError(oc.declareAbandoned(r), "TeamStillActive");
+  await net.advanceTime(p.guard!.inactivitySecs + 1);
+  await oc.declareAbandoned(r);
+  assert.equal(stateName((await raiseOf(r)).state), "liquidating");
+  assert.equal((await oc.guardState(r))!.abandoned, true);
+  // un holder cobra su parte
+  const voter = Keypair.generate();
+  await net.fund(voter.publicKey, LAMPORTS_PER_SOL);
+  const amount = (await circulating(oc, r)).divn(10);
+  await oc.transferBase(r, net.payer, voter.publicKey, amount);
+  await oc.redeem(r, voter, amount);
+  assert.ok((await oc.tokenBalance(r.quoteAta(voter.publicKey))).gtn(0));
+});
+
+test("2.10 init_guard valida sus parámetros y solo antes de financiar", async () => {
+  const s = await setup({ guard: { inactivitySecs: 10, buyoutPremiumBps: 3000, twapWindowSecs: 120 } });
+  await expectError(s.oc.createRaise(s.p), "InvalidGuard");
+  const s2 = await setup({ guard: { inactivitySecs: 300, buyoutPremiumBps: 500, twapWindowSecs: 120 } });
+  await expectError(s2.oc.createRaise(s2.p), "InvalidGuard");
+});
+
+/** Raise graduado con N observaciones de precio en el TWAP. */
+async function observedRaise(n = 4) {
+  const s = await fundedRaise();
+  await s.oc.migrate(s.r);
+  const g = (await s.oc.guardState(s.r))!;
+  for (let i = 0; i < n; i++) {
+    if (i) await s.net.advanceTime(g.observeIntervalSecs);
+    await s.oc.observe(s.r);
+  }
+  return s;
+}
+
+test("2.11 Bedrock en cadena: TWAP propio desde DAMM v2 y oferta pública con prima a todos los holders", async () => {
+  const { oc, net, r } = await observedRaise(2);
+  await expectError(oc.observe(r), "ObservationTooSoon");
+  await expectError(oc.tenderOffer(r, new BN(10 * LAMPORTS_PER_SOL)), "TwapNotReady");
+  const g0 = (await oc.guardState(r))!;
+  for (let i = 0; i < 3; i++) {
+    await net.advanceTime(g0.observeIntervalSecs);
+    await oc.observe(r);
+  }
+  const g = (await oc.guardState(r))!;
+  assert.ok(g.twapReady, "5 observaciones que cubren ≥ la mitad de la ventana");
+  const price = (await oc.dammState(r))!.price;
+  assert.ok(Math.abs(g.twap - price) / price < 0.01, `TWAP ${g.twap} ≈ precio ${price}`);
+
+  // un comprador hace la oferta; con un máximo menor que lo necesario, falla
+  const acquirer = Keypair.generate();
+  await net.fund(acquirer.publicKey, 20 * LAMPORTS_PER_SOL);
+  if (g.buyoutDeposit.gtn(1)) await expectError(oc.tenderOffer(r, g.buyoutDeposit.divn(2), acquirer), "BuyoutAboveMax");
+  const holderTokens = (await circulating(oc, r)).divn(20);
+  const holder = Keypair.generate();
+  await net.fund(holder.publicKey, LAMPORTS_PER_SOL);
+  await oc.transferBase(r, net.payer, holder.publicKey, holderTokens);
+  await oc.tenderOffer(r, g.buyoutDeposit.muln(105).divn(100).addn(1_000_000), acquirer);
+  const raise = await raiseOf(r);
+  assert.equal(stateName(raise.state), "liquidating");
+  assert.ok(new PublicKey(raise.team).equals(acquirer.publicKey), "el comprador pasa a ser el equipo");
+  // cada holder cobra al menos TWAP × 1,30 por token
+  await oc.redeem(r, holder, holderTokens);
+  const got = Number((await oc.tokenBalance(r.quoteAta(holder.publicKey))).toString());
+  const floor = Number(holderTokens.toString()) * g.twap * 1.3;
+  assert.ok(got >= floor * 0.999, `cobró ${got} ≥ TWAP×1,3 ${floor}`);
+});
+
+test("2.11 observe rechaza un pool que no es el DAMM v2 del raise", async () => {
+  const { oc, r } = await fundedRaise();
+  await oc.migrate(r);
+  const ix = await oc.m.observe().accountsStrict({ raise: r.raise, guard: r.guard, dammPool: r.pool }).instruction();
+  await expectError(oc.net.send("observe con el pool DBC", [ix], []), "InvalidDammPool");
+});

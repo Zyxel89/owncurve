@@ -19,6 +19,16 @@
       "config": "FDtBpfVYe1NJKNWWiuieJueFPKfmDY6XJhJyRxjc1aQe",
       "label": "Demo · raised in a tokenized stock",
       "blurb": "Raised in tNVDAx, a Token-2022 test token standing in for an xStock. The floor was defended in tNVDAx."
+    },
+    {
+      "config": "8toF88iSKFRstDfZzsRNkHz2GBet84K5ztgBEkXyFXNN",
+      "label": "Demo · Bedrock clause on-chain",
+      "blurb": "Taken over the only way the program allows: the acquirer paid every holder the on-chain TWAP +30%."
+    },
+    {
+      "config": "DVW29fmVR36A65xViVbuJNTzMMAvJro8vm4tpvX7MimF",
+      "label": "Demo · the team went silent",
+      "blurb": "No tranche request inside the guard window, so anyone could hand the treasury back to holders."
     }
   ],
   "testTeams": [

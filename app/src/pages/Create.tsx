@@ -35,6 +35,9 @@ export function Create() {
   const [windowSecs, setWindowSecs] = useState("60");
   const [quorum, setQuorum] = useState("10");
   const [floor, setFloor] = useState("20");
+  const [silentMin, setSilentMin] = useState("5");
+  const [premium, setPremium] = useState("30");
+  const [twapSecs, setTwapSecs] = useState("120");
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +57,12 @@ export function Create() {
             ? "The quorum must be between 1% and 30% of the supply."
             : !(Number(floor) >= 0 && Number(floor) <= 50)
               ? "Keep between 0% and 50% of the treasury as a price floor."
+              : !(Number(silentMin) >= 1)
+                ? "The ghost-team switch needs at least 1 minute."
+                : !(Number(premium) >= 10 && Number(premium) <= 100)
+                  ? "The takeover premium must be between 10% and 100%."
+                  : !(Number(twapSecs) >= 60)
+                    ? "The TWAP window must be at least 60 seconds."
             : !(Number(target) > 0)
               ? `Set how much ${sym} the curve should raise.`
               : !customOk
@@ -79,6 +88,11 @@ export function Create() {
         challengeSecs: Math.round(Number(windowSecs)),
         quorumBps: Math.round(Number(quorum) * 100),
         floorReserveBps: Math.round(Number(floor) * 100),
+        guard: {
+          inactivitySecs: Math.round(Number(silentMin) * 60),
+          buyoutPremiumBps: Math.round(Number(premium) * 100),
+          twapWindowSecs: Math.round(Number(twapSecs)),
+        },
       };
       setStep("Creating the raise and its Meteora curve (1 of 2)…");
       await oc.createRaise(params, configKp);
@@ -168,6 +182,20 @@ export function Create() {
             Treasury kept as a price floor (%)
             <input inputMode="decimal" value={floor} onChange={(e) => setFloor(e.target.value)} />
             <small>Never paid to the team. If the token trades below its backing, it buys tokens back and burns them.</small>
+          </label>
+          <label>
+            Return the treasury to holders if the team is silent for (minutes)
+            <input inputMode="decimal" value={silentMin} onChange={(e) => setSilentMin(e.target.value)} />
+            <small>Minutes on devnet so you can try it; on mainnet this would be weeks.</small>
+          </label>
+          <label>
+            Takeover premium over the TWAP (%)
+            <input inputMode="decimal" value={premium} onChange={(e) => setPremium(e.target.value)} />
+            <small>Meteora Bedrock's clause, enforced by the program: taking the project over means paying every holder this much over the market price.</small>
+          </label>
+          <label>
+            TWAP window (seconds)
+            <input inputMode="numeric" value={twapSecs} onChange={(e) => setTwapSecs(e.target.value)} />
           </label>
         </fieldset>
         {formError && <p className="error">{formError}</p>}

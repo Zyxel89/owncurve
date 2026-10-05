@@ -8,6 +8,9 @@ Links (fill in automatically by `owncurve.sh`):
 - Demo raise B (rejected → redemptions): https://zyxel89.github.io/owncurve/#/raise/ERrfcHfstYDDgamvvRYS3XDkJ2LmZk8Dei6sMhSQV9tW
 - Demo raise C (raised in a stablecoin, tUSD): https://zyxel89.github.io/owncurve/#/raise/FLtDebR8xRPrLcmGTDwA1XSfn3JbFw9ts5APNrDEQW3m
 - Demo raise D (raised in a tokenized stock, tNVDAx, floor defended): https://zyxel89.github.io/owncurve/#/raise/FDtBpfVYe1NJKNWWiuieJueFPKfmDY6XJhJyRxjc1aQe
+- Demo raise E (taken over through the on-chain Bedrock clause): https://zyxel89.github.io/owncurve/#/raise/8toF88iSKFRstDfZzsRNkHz2GBet84K5ztgBEkXyFXNN
+- Demo raise F (silent team → treasury back to holders): https://zyxel89.github.io/owncurve/#/raise/DVW29fmVR36A65xViVbuJNTzMMAvJro8vm4tpvX7MimF
+- Rug check any Meteora launch: https://zyxel89.github.io/owncurve/#/scan
 - Mainnet study: https://github.com/Zyxel89/owncurve/blob/main/docs/MAINNET-STUDY.md
 - Program (devnet): https://explorer.solana.com/address/GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh?cluster=devnet
 - Video: (YouTube/Loom link)
@@ -32,7 +35,10 @@ earns its fees, and a floor reserve buys the token back whenever it trades below
 whole DBC config before anyone buys (no creator LP, no mint authority, fee to treasury).
 Raises can be quoted in SOL, any SPL token (USDC) or any Token-2022 token (xStocks). An MCP
 server and an Agent Skill let AI agents launch, audit and govern raises, simulating every write
-unless confirmed. A mainnet study of every DBC config and launch measures the gap OwnCurve closes.
+unless confirmed. Meteora Bedrock's takeover clause runs as code: the program keeps its own TWAP from
+DAMM v2 and the only way to take a raise over is a tender offer that pays every holder TWAP +30%.
+If the team goes silent, anyone can return the treasury to holders. A rug check grades any mainnet
+DBC launch, and a mainnet study of every DBC config and launch measures the gap OwnCurve closes.
 
 ## How it uses Meteora
 
@@ -47,11 +53,11 @@ unless confirmed. A mainnet study of every DBC config and launch measures the ga
 
 ## Proof
 
-- Its own Anchor program (12 instructions) doing CPI into DBC and DAMM v2, not an SDK wrapper.
-- 25 integration tests against the real DBC and DAMM v2 binaries (LiteSVM), including full
+- Its own Anchor program (17 instructions) doing CPI into DBC and DAMM v2, not an SDK wrapper.
+- 29 integration tests against the real DBC and DAMM v2 binaries (LiteSVM), including full
   lifecycles in an SPL stablecoin and a Token-2022 tokenized stock; CLI, MCP and mainnet-study tests;
   a browser E2E test that drives the whole lifecycle in Chromium.
-- Four raises on devnet with every transaction linked: `docs/DEMO-devnet.md`.
+- Six raises on devnet (tranches + floor, rejection, stablecoin, tokenized stock, Bedrock takeover, ghost team) with every transaction linked: `docs/DEMO-devnet.md`.
 - security.txt embedded in the program, IDL on-chain, `scripts/verify.sh` matches the devnet binary to the source.
 
 ## Judging criteria → where to look
@@ -60,9 +66,9 @@ unless confirmed. A mainnet study of every DBC config and launch measures the ga
 | --- | --- |
 | Depth of Meteora integration | Treasury PDA is DBC `fee_claimer`; CPI `withdraw_migration_fee`, `claim_trading_fee`, `partner_withdraw_surplus`; DBC→DAMM v2 migration; CPI DAMM v2 `claim_position_fee` and `swap` |
 | Technical execution | Anchor program + 25 integration tests on real Meteora binaries, E2E, CLI/MCP tests, verify script |
-| Originality and taste | Milestone escrow with on-chain evidence, holder objections → redemptions, self-defending price floor |
+| Originality and taste | Milestone escrow with on-chain evidence, holder objections → redemptions, self-defending price floor, Meteora Bedrock's takeover clause as code, ghost-team switch |
 | Impact potential | Any DBC launchpad can add "ownership coin" mode; works for stablecoin and RWA (xStock) raises; agents can be holder guardians |
-| Traction | Live app, four devnet raises, mainnet study of every DBC launch |
+| Traction | Live app, six devnet raises, rug check that works on any mainnet DBC launch, mainnet study of every DBC launch |
 
 ## Video script (~2 min; check the form for its limits)
 

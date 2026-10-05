@@ -20,7 +20,7 @@ import { TEST_QUOTES, createTestQuote, devnetFaucet, mintTestQuoteIxs, testQuote
 
 type Step = { name: string; sig?: string; note?: string };
 type RaiseState = { config: number[]; baseMint: number[]; nftMints?: string[]; steps: Step[] };
-type DemoState = { version?: number; evidenceBase?: string; programId: string; voter: number[]; a: RaiseState; b: RaiseState; c?: RaiseState; d?: RaiseState };
+type DemoState = { version?: number; evidenceBase?: string; programId: string; voter: number[]; a: RaiseState; b: RaiseState; c?: RaiseState; d?: RaiseState; e?: RaiseState; f?: RaiseState; holderE?: number[] };
 // v2: piso de precio + evidencia por tramo (las cuentas Raise cambiaron de tamaño)
 const DEMO_VERSION = 2;
 const EVIDENCE_BASE = process.env.EVIDENCE_BASE ?? "https://github.com/Zyxel89/owncurve";
@@ -64,6 +64,9 @@ async function main() {
   };
   st.c ??= newRaiseState();
   st.d ??= newRaiseState();
+  st.e ??= newRaiseState();
+  st.f ??= newRaiseState();
+  st.holderE ??= Array.from(Keypair.generate().secretKey);
   const save = () => {
     fs.mkdirSync(".owncurve", { recursive: true });
     if (net.cluster === "devnet") fs.writeFileSync(file, JSON.stringify(st, null, 2));
@@ -261,6 +264,78 @@ async function main() {
   }, async () => floorD);
   const finalD = await D.fetch();
 
+  /** Reintenta mientras el reloj de devnet no haya llegado (ventanas e intervalos del guard). */
+  const whenReady = async (fn: () => Promise<string>, errName: RegExp, step = 5) => {
+    for (let i = 0; i < 20; i++) {
+      try {
+        return await fn();
+      } catch (e: any) {
+        const text = `${e.message}\n${(e.logs ?? []).join("\n")}`;
+        if (!errName.test(text)) throw e;
+        await net.advanceTime(step);
+      }
+    }
+    throw new Error("El reloj de la red no avanzó a tiempo");
+  };
+
+  // ================================================================ RAISE E: Bedrock en cadena
+  console.log(`\n  ── Raise E · cláusula Bedrock en cadena (TWAP + oferta pública) ──`);
+  const pE: RaiseParams = { ...DEFAULT_PARAMS, threshold: 0.25 };
+  const E = new Raise(oc, kp(st.e!.config).publicKey, kp(st.e!.baseMint).publicKey);
+  const holderE = kp(st.holderE!);
+  let twapNote = "";
+  await step(st.e!, "E1 crear raise con guard", async () => (await oc.createRaise(pE, kp(st!.e!.config))).sig);
+  await step(st.e!, "E2 lanzar pool + bind_pool", async () => (await oc.launchPool(E.config, kp(st!.e!.baseMint), undefined, true, { name: "Keystone Studio", symbol: "KEY", uri: "https://raw.githubusercontent.com/solana-developers/opos-asset/main/assets/DeveloperPortal/metadata.json" })).sig);
+  await step(st.e!, "E3 comprar hasta graduar", async () => (await oc.buyToComplete(E)).at(-1));
+  await step(st.e!, "E4 harvest + arm_guard", () => oc.harvest(E), async () => `tesorería ${sol((await E.fetch()).fundedAmount)} SOL`);
+  await step(st.e!, "E5 migrar a DAMM v2", async () => (await oc.migrate(E)).sig);
+  await step(st.e!, "E6 holder recibe 5% del suministro", async () => {
+    await net.fund(holderE.publicKey, 0.02 * LAMPORTS_PER_SOL);
+    const circ = (await oc.mintSupply(E.baseMint)).sub(await oc.tokenBalance(E.treasuryBase));
+    return oc.transferBase(E, net.payer, holderE.publicKey, circ.muln(500).divn(10_000));
+  });
+  const gE = (await oc.guardState(E))!;
+  for (let i = 1; i <= 5; i++) {
+    await step(st.e!, `E7.${i} observe (TWAP)`, async () => {
+      if (i > 1) await net.advanceTime(gE.observeIntervalSecs);
+      return whenReady(() => oc.observe(E), /ObservationTooSoon/);
+    });
+  }
+  await step(st.e!, "E8 oferta pública (tender_offer)", async () => {
+    const g = await oc.guardState(E);
+    if (!g!.twapReady) await net.advanceTime(gE.observeIntervalSecs);
+    const g2 = (await oc.guardState(E))!;
+    twapNote = `TWAP ${(g2.twap * 1e3).toPrecision(3)} → oferta ${(g2.buyoutPrice * 1e3).toPrecision(3)} SOL/M tokens (+${g2.buyoutPremiumBps / 100}%), depósito ${sol(g2.buyoutDeposit)} SOL`;
+    return whenReady(() => oc.tenderOffer(E, g2.buyoutDeposit.muln(105).divn(100).addn(1_000_000)), /TwapNotReady/);
+  }, async () => twapNote);
+  let paidE = "";
+  await step(st.e!, "E9 holder redime a precio de oferta", async () => {
+    const amount = await oc.tokenBalance(E.baseAta(holderE.publicKey));
+    const sig = await oc.redeem(E, holderE, amount);
+    const got = await oc.tokenBalance(E.quoteAta(holderE.publicKey));
+    const g = (await oc.guardState(E))!;
+    const perToken = Number(got.toString()) / Number(amount.toString());
+    paidE = `cobró ${sol(got)} SOL: ${((perToken / g.twap - 1) * 100).toFixed(0)}% sobre el TWAP`;
+    return sig;
+  }, async () => paidE);
+  await step(st.e!, "E10 el comprador redime sus tokens", async () => {
+    const amount = await oc.tokenBalance(E.baseAta(payer));
+    if (amount.gtn(0)) return oc.redeem(E, net.payer, amount);
+  });
+  const finalE = await E.fetch();
+
+  // ================================================================ RAISE F: equipo fantasma
+  console.log(`\n  ── Raise F · equipo fantasma: la tesorería vuelve a los holders ──`);
+  const pF: RaiseParams = { ...DEFAULT_PARAMS, threshold: 0.1, guard: { inactivitySecs: 60, buyoutPremiumBps: 3000, twapWindowSecs: 120 } };
+  const F = new Raise(oc, kp(st.f!.config).publicKey, kp(st.f!.baseMint).publicKey);
+  await step(st.f!, "F1 crear raise con guard (60 s)", async () => (await oc.createRaise(pF, kp(st!.f!.config))).sig);
+  await step(st.f!, "F2 lanzar pool + bind_pool", async () => (await oc.launchPool(F.config, kp(st!.f!.baseMint), undefined, true, { name: "Driftwood Games", symbol: "DRFT", uri: "https://raw.githubusercontent.com/solana-developers/opos-asset/main/assets/DeveloperPortal/metadata.json" })).sig);
+  await step(st.f!, "F3 comprar hasta graduar", async () => (await oc.buyToComplete(F)).at(-1));
+  await step(st.f!, "F4 harvest + arm_guard", () => oc.harvest(F), async () => `tesorería ${sol((await F.fetch()).fundedAmount)} SOL`);
+  await step(st.f!, "F5 el equipo no pide nada en 60 s", async () => net.advanceTime(60));
+  await step(st.f!, "F6 declare_abandoned", () => whenReady(() => oc.declareAbandoned(F), /TeamStillActive/), async () => `estado "${await F.state()}"`);
+  const finalF = await F.fetch();
+
   // ================================================================ resumen
   const link = (s?: string) => (s ? net.explorer(s) : "");
   const addr = (a: PublicKey) =>
@@ -307,6 +382,21 @@ async function main() {
       tokensBurned: finalD.tokensBurned.toString(),
       steps: st.d!.steps.map((s) => ({ ...s, link: link(s.sig) })),
     },
+    raiseE: {
+      config: E.config.toBase58(),
+      treasury: E.treasury.toBase58(),
+      state: stateName(finalE.state),
+      acquirer: new PublicKey(finalE.team).toBase58(),
+      note: twapNote,
+      steps: st.e!.steps.map((s) => ({ ...s, link: link(s.sig) })),
+    },
+    raiseF: {
+      config: F.config.toBase58(),
+      treasury: F.treasury.toBase58(),
+      state: stateName(finalF.state),
+      fundedSol: sol(finalF.fundedAmount),
+      steps: st.f!.steps.map((s) => ({ ...s, link: link(s.sig) })),
+    },
   };
   fs.writeFileSync(`.owncurve/demo-result-${net.cluster}.json`, JSON.stringify(result, null, 2));
 
@@ -343,6 +433,18 @@ async function main() {
     [/estado/g, "state"],
     [/recibió (.*) por sus tokens/, "received $1 for the tokens"],
     [/SOL\/M tokens/g, "SOL per 1M tokens"],
+    [/crear raise con guard \((\d+) s\)/, "init_raise + init_guard ($1 s inactivity) + DBC create_config"],
+    [/crear raise con guard/, "init_raise + init_guard + DBC create_config"],
+    [/harvest \+ arm_guard/, "harvest + arm_guard (inactivity clock starts)"],
+    [/holder recibe 5% del suministro/, "holder receives 5% of supply"],
+    [/observe \(TWAP\)/, "observe: record the DAMM v2 price for the TWAP"],
+    [/oferta pública \(tender_offer\)/, "tender_offer: takeover paying every holder TWAP +30%"],
+    [/holder redime a precio de oferta/, "holder redeems at the buyout price"],
+    [/el comprador redime sus tokens/, "acquirer redeems its own tokens"],
+    [/el equipo no pide nada en (\d+) s/, "team stays silent for $1 s"],
+    [/oferta/g, "offer"],
+    [/depósito/g, "deposit"],
+    [/cobró (.*): (.*)% sobre el TWAP/, "received $1: $2% above the TWAP"],
   ];
   const en = (t = "") => EN.reduce((acc, [re, rep]) => acc.replace(re, rep), t);
   const table = (steps: { name: string; note?: string; link: string; sig?: string }[]) => [
@@ -379,6 +481,18 @@ async function main() {
     ``,
     ...table(result.raiseD.steps),
     ``,
+    `## Raise E · Meteora Bedrock's takeover clause, enforced on-chain`,
+    ``,
+    `Treasury [\`${E.treasury.toBase58()}\`](${addr(E.treasury)}) · the program built its own TWAP from DAMM v2 price observations; a takeover had to top the treasury up so every holder redeems at TWAP +30%. ${en(result.raiseE.note)} · final state **${result.raiseE.state}**, new team ${result.raiseE.acquirer.slice(0, 6)}….`,
+    ``,
+    ...table(result.raiseE.steps),
+    ``,
+    `## Raise F · the team went silent, the treasury went back to holders`,
+    ``,
+    `Treasury [\`${F.treasury.toBase58()}\`](${addr(F.treasury)}) · funded ${result.raiseF.fundedSol} SOL · no tranche request within the guard's window (60 s on devnet), so anyone could call \`declare_abandoned\` · final state **${result.raiseF.state}**.`,
+    ``,
+    ...table(result.raiseF.steps),
+    ``,
   ].join("\n");
   fs.mkdirSync("docs", { recursive: true });
   fs.writeFileSync(`docs/DEMO-${net.cluster}.md`, md);
@@ -387,9 +501,11 @@ async function main() {
   const okB = result.raiseB.state === "liquidating";
   const okC = Number(result.raiseC.released) > 0;
   const okD = ["funded", "completed"].includes(result.raiseD.state);
-  if (!okA || !okB || !okC || !okD)
-    throw new Error(`Demo incompleta: A=${result.raiseA.state} B=${result.raiseB.state} C=${result.raiseC.released} D=${result.raiseD.state}`);
-  console.log(`\n  DEMO OK: ciclo completo en ${net.cluster} (A completado con piso defendido, B en liquidación, C en tUSD, D en tNVDAx).`);
+  const okE = result.raiseE.state === "liquidating";
+  const okF = result.raiseF.state === "liquidating";
+  if (!okA || !okB || !okC || !okD || !okE || !okF)
+    throw new Error(`Demo incompleta: A=${result.raiseA.state} B=${result.raiseB.state} C=${result.raiseC.released} D=${result.raiseD.state} E=${result.raiseE.state} F=${result.raiseF.state}`);
+  console.log(`\n  DEMO OK: ciclo completo en ${net.cluster} (A completado con piso defendido, B en liquidación, C en tUSD, D en tNVDAx, E comprado con prima, F devuelto por abandono).`);
   console.log(`  Resumen para jueces: docs/DEMO-${net.cluster}.md`);
 }
 

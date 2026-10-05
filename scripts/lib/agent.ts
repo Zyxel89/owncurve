@@ -4,7 +4,7 @@ import { BN } from "@anchor-lang/core";
 import { Keypair, LAMPORTS_PER_SOL, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import bs58 from "bs58";
 import { Net, loadIdl } from "./net";
-import { BASE_DECIMALS, DEFAULT_PARAMS, OwnCurve, Quote, Raise, SOL_QUOTE, evidence, stateName } from "./owncurve";
+import { BASE_DECIMALS, DEFAULT_GUARD, DEFAULT_PARAMS, OwnCurve, Quote, Raise, SOL_QUOTE, evidence, stateName } from "./owncurve";
 
 export type ParamSpec = { name: string; type: "string" | "number"; required?: boolean; description: string };
 export type CommandSpec = { name: string; write: boolean; who: "anyone" | "team" | "holder"; description: string; params: ParamSpec[] };
@@ -36,6 +36,9 @@ export const COMMANDS: CommandSpec[] = [
       { name: "window", type: "number", description: "Seconds holders have to object to each tranche, ≥ 60 (default 60)" },
       { name: "quorum", type: "number", description: "% of circulating supply that blocks a tranche, ≤ 30 (default 10)" },
       { name: "floor", type: "number", description: "% of the treasury kept as a price-floor reserve, 0–50 (default 20)" },
+      { name: "inactivity", type: "number", description: "Ghost-team guard: seconds without a tranche request after which anyone can return the treasury to holders (default 300 on devnet)" },
+      { name: "premium", type: "number", description: "On-chain Bedrock clause: % over the TWAP a takeover must pay every holder, 10–100 (default 30)" },
+      { name: "twap", type: "number", description: "TWAP window in seconds for the takeover price (default 120)" },
     ],
   },
   {
@@ -60,6 +63,22 @@ export const COMMANDS: CommandSpec[] = [
     who: "anyone",
     description: "When the DAMM v2 price is below the treasury backing, make the treasury buy tokens back (never above backing) and burn them.",
     params: [CONFIG, { name: "spend", type: "number", description: "Amount to spend in the raise currency (default: suggested amount)" }],
+  },
+  { name: "observe", write: true, who: "anyone", description: "Record the DAMM v2 price into the raise's on-chain TWAP (needed before a takeover).", params: [CONFIG] },
+  {
+    name: "declare-abandoned",
+    write: true,
+    who: "anyone",
+    description: "Ghost-team protection: if the team has not requested a tranche within the guard's inactivity window, return the treasury to holders (redemptions open).",
+    params: [CONFIG],
+  },
+  {
+    name: "tender-offer",
+    write: true,
+    who: "anyone",
+    description:
+      "On-chain Bedrock clause: take over the raise by topping up the treasury so every holder can redeem at TWAP × (1 + premium). The acquirer becomes the team; holders redeem.",
+    params: [CONFIG, { name: "max", type: "number", description: "Most you are willing to deposit, in the raise currency (default: quoted amount + 2%)" }],
   },
   {
     name: "object",
@@ -231,6 +250,31 @@ async function show(oc: OwnCurve, config: string) {
         }
       : null;
 
+  let guard: any = null;
+  const gs = bound ? await oc.guardState(r).catch(() => null) : null;
+  if (gs) {
+    guard = {
+      ghostTeam: {
+        inactivitySecs: gs.inactivitySecs,
+        armed: gs.armedAt > 0,
+        abandonableAt: gs.abandonableAt ? new Date(gs.abandonableAt * 1000).toISOString() : null,
+        secondsLeft: gs.abandonableAt ? Math.max(0, gs.abandonableAt - gs.now) : null,
+        abandoned: gs.abandoned,
+      },
+      bedrock: {
+        premiumPct: gs.buyoutPremiumBps / 100,
+        twapWindowSecs: gs.twapWindowSecs,
+        observationsInWindow: gs.observationsInWindow,
+        twapReady: gs.twapReady,
+        twapPerMillionTokens: perM(gs.twap),
+        buyoutPerMillionTokens: perM(gs.buyoutPrice),
+        depositToTakeOver: ui(gs.buyoutDeposit, d),
+        nextObserveInSecs: Math.max(0, gs.nextObserveAt - gs.now),
+        acquirer: gs.acquired ? gs.acquirer.toBase58() : null,
+      },
+    };
+  }
+
   const can: string[] = [];
   if (state === "bonding" && curve && !curve.complete) can.push("buy");
   if (state === "bonding" && curve?.complete) can.push("harvest");
@@ -242,6 +286,9 @@ async function show(oc: OwnCurve, config: string) {
   if (wallet?.votes.some((v: any) => v.nonce < Number(raise.proposalNonce))) can.push("unlock");
   if (state === "liquidating" && wallet?.tokens > 0) can.push("redeem");
   if (market?.suggestedDefend > 0) can.push("defend-floor");
+  if (guard && ["funded", "completed"].includes(state) && curve?.migrated && guard.bedrock.nextObserveInSecs === 0) can.push("observe");
+  if (guard && state === "funded" && !proposal && guard.ghostTeam.secondsLeft === 0) can.push("declare-abandoned");
+  if (guard && ["funded", "completed"].includes(state) && guard.bedrock.twapReady) can.push("tender-offer");
 
   return {
     config,
@@ -266,6 +313,7 @@ async function show(oc: OwnCurve, config: string) {
     curve,
     backing,
     market,
+    guard,
     wallet,
     can,
   };
@@ -301,6 +349,11 @@ export async function runCommand(base: Net, cmd: string, input: Record<string, a
           challengeSecs: num("window", 60)!,
           quorumBps: Math.round(num("quorum", 10)! * 100),
           floorReserveBps: Math.round(num("floor", 20)! * 100),
+          guard: {
+            inactivitySecs: num("inactivity", DEFAULT_GUARD.inactivitySecs)!,
+            buyoutPremiumBps: Math.round(num("premium", DEFAULT_GUARD.buyoutPremiumBps / 100)! * 100),
+            twapWindowSecs: num("twap", DEFAULT_GUARD.twapWindowSecs)!,
+          },
         };
         const configKp = Keypair.generate();
         await oc.createRaise(params, configKp);
@@ -341,6 +394,22 @@ export async function runCommand(base: Net, cmd: string, input: Record<string, a
         const amount = num("spend") !== undefined ? toUnits(num("spend")!, quote.decimals) : await oc.suggestDefend(r);
         if (amount.isZero()) return { ok: false, reason: "The market price is not below the treasury backing (or the floor budget is empty)." };
         return done(await oc.defendFloor(r, amount), { spent: ui(amount, quote.decimals), quote: quote.symbol });
+      }
+      case "observe": {
+        const { r } = await raiseFor(oc, input.config);
+        return done(await oc.observe(r));
+      }
+      case "declare-abandoned": {
+        const { r } = await raiseFor(oc, input.config);
+        return done(await oc.declareAbandoned(r));
+      }
+      case "tender-offer": {
+        const { r, quote } = await raiseFor(oc, input.config);
+        const g = await oc.guardState(r);
+        if (!g) return { ok: false, error: "This raise has no guard (launched before the guard existed)." };
+        if (!g.twapReady) return { ok: false, error: `TWAP not ready: ${g.observationsInWindow} observations in the window; run observe every ${g.observeIntervalSecs}s.` };
+        const max = num("max") !== undefined ? toUnits(num("max")!, quote.decimals) : g.buyoutDeposit.muln(102).divn(100).addn(1);
+        return done(await oc.tenderOffer(r, max), { quotedDeposit: ui(g.buyoutDeposit, quote.decimals), max: ui(max, quote.decimals), quote: quote.symbol });
       }
       case "object": {
         const { r } = await raiseFor(oc, input.config);

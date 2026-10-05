@@ -88,6 +88,8 @@ async function main() {
     await team.page.getByRole("button", { name: "Move the raise into the treasury" }).click();
     await ok(team.page, "The treasury is funded.");
     await team.page.getByText("Paying in tranches").first().waitFor();
+    await team.page.getByText("Protections that run on their own").waitFor();
+    await team.page.getByText(/If the team requests nothing in/).waitFor({ timeout: 30_000 });
     step("curva completa y tesorería financiada desde la interfaz");
     await shot(team.page, "tesoreria-financiada");
 
@@ -153,6 +155,15 @@ async function main() {
     await team.page.getByText("80.000 tUSD").first().waitFor();
     step("raise en tUSD: faucet de prueba, compra, tesorería financiada en tUSD");
     await shot(team.page, "raise-tusd");
+
+    // 6c. Escáner: el raise de OwnCurve saca A+
+    await team.page.goto(appUrl + "#/scan");
+    await team.page.getByLabel("Network").selectOption("devnet");
+    await team.page.getByLabel("Token mint, DBC pool or config address").fill(raiseUrl.split("/").pop()!);
+    await team.page.getByRole("button", { name: "Check" }).click();
+    await team.page.getByLabel("Grade A+").waitFor({ timeout: 30_000 });
+    step("escáner de lanzamientos: el raise de OwnCurve saca A+");
+    await shot(team.page, "escaner");
 
     // 6. La lista de inicio refleja el estado, aunque haya un raise de una versión vieja
     //    del programa (como el de la F1 en devnet, 8 bytes más corto).

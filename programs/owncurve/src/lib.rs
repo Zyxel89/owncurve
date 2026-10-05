@@ -41,6 +41,40 @@ pub struct InitRaiseParams {
     pub floor_reserve_bps: u16,
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct GuardParams {
+    /// Seconds the team may go without requesting a tranche before holders get the treasury back.
+    pub inactivity_secs: i64,
+    /// Premium over the TWAP a takeover must pay every holder (bps; Bedrock uses 3000 = +30%).
+    pub buyout_premium_bps: u16,
+    pub twap_window_secs: i64,
+}
+
+#[event]
+pub struct TeamAbandoned {
+    pub raise: Pubkey,
+    pub silent_since: i64,
+    pub declared_at: i64,
+}
+
+#[event]
+pub struct PriceObserved {
+    pub raise: Pubkey,
+    pub ts: i64,
+    pub price_q64: u128,
+}
+
+#[event]
+pub struct BuyoutExecuted {
+    pub raise: Pubkey,
+    pub acquirer: Pubkey,
+    pub twap_q64: u128,
+    pub buyout_price_q64: u128,
+    pub circulating: u64,
+    pub deposit: u64,
+    pub treasury_after: u64,
+}
+
 #[event]
 pub struct TrancheRequested {
     pub raise: Pubkey,
@@ -608,6 +642,203 @@ pub mod owncurve {
         )?;
         Ok(())
     }
+
+    // -----------------------------------------------------------------------
+    // Guard: protections that run on their own
+    // -----------------------------------------------------------------------
+
+    /// Team opts the raise into the guard before it is funded (usually in the launch transaction).
+    pub fn init_guard(ctx: Context<InitGuard>, params: GuardParams) -> Result<()> {
+        let raise = &ctx.accounts.raise;
+        require!(
+            raise.state == RaiseState::Pending || raise.state == RaiseState::Bonding,
+            OwnCurveError::InvalidState
+        );
+        require!(
+            params.inactivity_secs >= MIN_INACTIVITY
+                && (MIN_BUYOUT_PREMIUM_BPS..=MAX_BUYOUT_PREMIUM_BPS).contains(&params.buyout_premium_bps)
+                && params.twap_window_secs >= MIN_TWAP_WINDOW,
+            OwnCurveError::InvalidGuard
+        );
+        let guard = &mut ctx.accounts.guard;
+        guard.raise = raise.key();
+        guard.inactivity_secs = params.inactivity_secs;
+        guard.buyout_premium_bps = params.buyout_premium_bps;
+        guard.twap_window_secs = params.twap_window_secs;
+        guard.observe_interval_secs = (params.twap_window_secs / 8).max(1);
+        guard.bump = ctx.bumps.guard;
+        Ok(())
+    }
+
+    /// Starts the inactivity clock once the treasury is funded. Permissionless, once.
+    pub fn arm_guard(ctx: Context<GuardOnly>) -> Result<()> {
+        require!(ctx.accounts.raise.state == RaiseState::Funded, OwnCurveError::InvalidState);
+        let guard = &mut ctx.accounts.guard;
+        if guard.armed_at == 0 {
+            guard.armed_at = Clock::get()?.unix_timestamp.max(1); // 0 = no armado
+        }
+        Ok(())
+    }
+
+    /// Ghost-team protection: if the team has not requested a tranche for `inactivity_secs`,
+    /// anyone can turn the treasury into a redemption pool for holders.
+    pub fn declare_abandoned(ctx: Context<GuardOnly>) -> Result<()> {
+        let now = Clock::get()?.unix_timestamp;
+        let guard = &ctx.accounts.guard;
+        let raise = &ctx.accounts.raise;
+        require!(raise.state == RaiseState::Funded, OwnCurveError::InvalidState);
+        require!(guard.armed_at > 0, OwnCurveError::GuardNotArmed);
+        let pending = raise.milestones[..raise.milestone_count as usize]
+            .iter()
+            .any(|m| m.status == MilestoneStatus::Proposed);
+        require!(!pending, OwnCurveError::TeamStillActive);
+        let silent_since = guard.armed_at.max(raise.proposal_ends_at);
+        require!(
+            now >= silent_since.checked_add(guard.inactivity_secs).ok_or(OwnCurveError::MathOverflow)?,
+            OwnCurveError::TeamStillActive
+        );
+        ctx.accounts.raise.state = RaiseState::Liquidating;
+        ctx.accounts.guard.abandoned = true;
+        emit!(TeamAbandoned { raise: ctx.accounts.raise.key(), silent_since, declared_at: now });
+        Ok(())
+    }
+
+    /// Records the DAMM v2 price for the guard's on-chain TWAP. Permissionless crank.
+    pub fn observe(ctx: Context<Observe>) -> Result<()> {
+        let raise = &ctx.accounts.raise;
+        require!(
+            raise.state == RaiseState::Funded || raise.state == RaiseState::Completed,
+            OwnCurveError::InvalidState
+        );
+        let price_q64 = damm_price_q64(&ctx.accounts.damm_pool, raise)?;
+        let now = Clock::get()?.unix_timestamp;
+        let guard = &mut ctx.accounts.guard;
+        if guard.obs_count > 0 {
+            let last = guard.observations[(guard.obs_head as usize + OBSERVATIONS - 1) % OBSERVATIONS];
+            require!(now >= last.ts + guard.observe_interval_secs, OwnCurveError::ObservationTooSoon);
+        }
+        let head = guard.obs_head as usize;
+        guard.observations[head] = Observation { ts: now, price_q64 };
+        guard.obs_head = ((head + 1) % OBSERVATIONS) as u8;
+        guard.obs_count = (guard.obs_count + 1).min(OBSERVATIONS as u8);
+        emit!(PriceObserved { raise: raise.key(), ts: now, price_q64 });
+        Ok(())
+    }
+
+    /// On-chain Bedrock clause. The only way to take over a raise is a tender offer to every
+    /// holder: the acquirer tops the treasury up until each circulating token redeems for at
+    /// least TWAP × (1 + premium). The raise then pays holders out pro rata and the acquirer
+    /// becomes its `team`.
+    pub fn tender_offer(ctx: Context<TenderOffer>, max_deposit: u64) -> Result<()> {
+        let raise = &ctx.accounts.raise;
+        require!(
+            raise.state == RaiseState::Funded || raise.state == RaiseState::Completed,
+            OwnCurveError::InvalidState
+        );
+        let now = Clock::get()?.unix_timestamp;
+        let guard = &ctx.accounts.guard;
+        let twap = twap_q64(guard, now)?;
+        let buyout_price = twap
+            .checked_mul((BPS + guard.buyout_premium_bps as u64) as u128)
+            .ok_or(OwnCurveError::MathOverflow)?
+            / (BPS as u128);
+        let circulating = circulating_supply(ctx.accounts.base_mint.supply, ctx.accounts.treasury_base.amount);
+        require!(circulating > 0, OwnCurveError::NothingToDefend);
+        let required = mul_shr64(buyout_price, circulating).ok_or(OwnCurveError::MathOverflow)?;
+        let deposit = u64::try_from(required.saturating_sub(ctx.accounts.treasury_quote.amount as u128))
+            .map_err(|_| error!(OwnCurveError::MathOverflow))?;
+        require!(deposit <= max_deposit, OwnCurveError::BuyoutAboveMax);
+
+        if deposit > 0 {
+            token_interface::transfer_checked(
+                CpiContext::new(
+                    ctx.accounts.quote_token_program.key(),
+                    TransferChecked {
+                        from: ctx.accounts.acquirer_quote.to_account_info(),
+                        mint: ctx.accounts.quote_mint.to_account_info(),
+                        to: ctx.accounts.treasury_quote.to_account_info(),
+                        authority: ctx.accounts.acquirer.to_account_info(),
+                    },
+                ),
+                deposit,
+                ctx.accounts.quote_mint.decimals,
+            )?;
+        }
+        ctx.accounts.treasury_quote.reload()?;
+
+        let acquirer = ctx.accounts.acquirer.key();
+        let raise = &mut ctx.accounts.raise;
+        // An open tranche request dies with the takeover: its votes become withdrawable.
+        let count = raise.milestone_count as usize;
+        if let Some(m) = raise.milestones[..count].iter_mut().find(|m| m.status == MilestoneStatus::Proposed) {
+            m.status = MilestoneStatus::Locked;
+            raise.proposal_nonce += 1;
+        }
+        raise.state = RaiseState::Liquidating;
+        raise.team = acquirer;
+        let guard = &mut ctx.accounts.guard;
+        guard.acquirer = acquirer;
+        guard.buyout_price_q64 = buyout_price;
+        emit!(BuyoutExecuted {
+            raise: raise.key(),
+            acquirer,
+            twap_q64: twap,
+            buyout_price_q64: buyout_price,
+            circulating,
+            deposit,
+            treasury_after: ctx.accounts.treasury_quote.amount,
+        });
+        Ok(())
+    }
+}
+
+/// `a × b / 2^64` without overflowing u128 when `a` is a Q64.64 number.
+fn mul_shr64(a: u128, b: u64) -> Option<u128> {
+    let hi = (a >> 64).checked_mul(b as u128)?;
+    let lo = ((a & u64::MAX as u128) * (b as u128)) >> 64;
+    hi.checked_add(lo)
+}
+
+/// DAMM v2 `Pool` layout (Meteora damm-v2 IDL, program cpamdp…): discriminator, mints, sqrt_price.
+const DAMM_POOL_DISC: [u8; 8] = [0xf1, 0x9a, 0x6d, 0x04, 0x11, 0xb1, 0x6d, 0xbc];
+const DAMM_TOKEN_A_MINT: usize = 168;
+const DAMM_TOKEN_B_MINT: usize = 200;
+const DAMM_SQRT_PRICE: usize = 456;
+
+/// Spot price of the raise's DAMM v2 pool (quote atoms per base atom, Q64.64), after checking
+/// that the account really is that pool.
+fn damm_price_q64(pool: &UncheckedAccount, raise: &Raise) -> Result<u128> {
+    require_keys_eq!(*pool.owner, damm_v2::ID, OwnCurveError::InvalidDammPool);
+    let data = pool.try_borrow_data()?;
+    require!(data.len() >= DAMM_SQRT_PRICE + 16 && data[..8] == DAMM_POOL_DISC, OwnCurveError::InvalidDammPool);
+    let mint_a = Pubkey::try_from(&data[DAMM_TOKEN_A_MINT..DAMM_TOKEN_A_MINT + 32]).unwrap();
+    let mint_b = Pubkey::try_from(&data[DAMM_TOKEN_B_MINT..DAMM_TOKEN_B_MINT + 32]).unwrap();
+    require!(mint_a == raise.base_mint && mint_b == raise.quote_mint, OwnCurveError::InvalidDammPool);
+    let sqrt = u128::from_le_bytes(data[DAMM_SQRT_PRICE..DAMM_SQRT_PRICE + 16].try_into().unwrap());
+    // price = sqrt² / 2^64 in Q64.64; split to stay inside u128
+    let s = sqrt >> 32;
+    s.checked_mul(s).ok_or(error!(OwnCurveError::MathOverflow))
+}
+
+/// Average of the observations inside the TWAP window (they are spaced at least
+/// `observe_interval_secs` apart, so the mean is time-weighted up to that granularity).
+fn twap_q64(guard: &Guard, now: i64) -> Result<u128> {
+    let from = now - guard.twap_window_secs;
+    let mut sum: u128 = 0;
+    let mut n: u128 = 0;
+    let mut oldest = i64::MAX;
+    for o in guard.observations.iter().take(guard.obs_count as usize) {
+        if o.ts >= from {
+            sum = sum.checked_add(o.price_q64).ok_or(OwnCurveError::MathOverflow)?;
+            n += 1;
+            oldest = oldest.min(o.ts);
+        }
+    }
+    require!(
+        n >= MIN_TWAP_OBSERVATIONS as u128 && now - oldest >= guard.twap_window_secs / 2,
+        OwnCurveError::TwapNotReady
+    );
+    Ok(sum / n)
 }
 
 /// Quote payable to the team for milestone `idx`: tranches split `funded − floor reserve`;
@@ -1050,4 +1281,57 @@ mod tests {
         assert_eq!(circulating_supply(1_000, 200), 800);
         assert_eq!(circulating_supply(100, 500), 0);
     }
+}
+
+#[derive(Accounts)]
+pub struct InitGuard<'info> {
+    #[account(mut, address = raise.team)]
+    pub team: Signer<'info>,
+    #[account(seeds = [RAISE_SEED, raise.dbc_config.as_ref()], bump = raise.bump)]
+    pub raise: Box<Account<'info, Raise>>,
+    #[account(init, payer = team, space = 8 + Guard::INIT_SPACE, seeds = [GUARD_SEED, raise.key().as_ref()], bump)]
+    pub guard: Box<Account<'info, Guard>>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct GuardOnly<'info> {
+    #[account(mut, seeds = [RAISE_SEED, raise.dbc_config.as_ref()], bump = raise.bump)]
+    pub raise: Box<Account<'info, Raise>>,
+    #[account(mut, seeds = [GUARD_SEED, raise.key().as_ref()], bump = guard.bump)]
+    pub guard: Box<Account<'info, Guard>>,
+}
+
+#[derive(Accounts)]
+pub struct Observe<'info> {
+    #[account(seeds = [RAISE_SEED, raise.dbc_config.as_ref()], bump = raise.bump)]
+    pub raise: Box<Account<'info, Raise>>,
+    #[account(mut, seeds = [GUARD_SEED, raise.key().as_ref()], bump = guard.bump)]
+    pub guard: Box<Account<'info, Guard>>,
+    /// CHECK: owner, discriminator and mints checked in `damm_price_q64`
+    pub damm_pool: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
+pub struct TenderOffer<'info> {
+    #[account(mut)]
+    pub acquirer: Signer<'info>,
+    #[account(mut, seeds = [RAISE_SEED, raise.dbc_config.as_ref()], bump = raise.bump)]
+    pub raise: Box<Account<'info, Raise>>,
+    #[account(mut, seeds = [GUARD_SEED, raise.key().as_ref()], bump = guard.bump)]
+    pub guard: Box<Account<'info, Guard>>,
+    /// CHECK: PDA (authority of the treasury token accounts)
+    #[account(seeds = [TREASURY_SEED, raise.dbc_config.as_ref()], bump = raise.treasury_bump)]
+    pub treasury: UncheckedAccount<'info>,
+    #[account(mut, token::mint = quote_mint, token::authority = treasury, token::token_program = quote_token_program)]
+    pub treasury_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(token::mint = base_mint, token::authority = treasury)]
+    pub treasury_base: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut, token::mint = quote_mint, token::authority = acquirer, token::token_program = quote_token_program)]
+    pub acquirer_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(address = raise.quote_mint)]
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
+    #[account(address = raise.base_mint)]
+    pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub quote_token_program: Interface<'info, TokenInterface>,
 }

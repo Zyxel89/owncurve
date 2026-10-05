@@ -7,6 +7,70 @@
   },
   "instructions": [
     {
+      "name": "arm_guard",
+      "docs": [
+        "Starts the inactivity clock once the treasury is funded. Permissionless, once."
+      ],
+      "discriminator": [
+        137,
+        157,
+        198,
+        0,
+        147,
+        123,
+        213,
+        200
+      ],
+      "accounts": [
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "guard",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  117,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "bind_pool",
       "docs": [
         "Permissionless: reads the live DBC config + pool and proves the launch is",
@@ -407,6 +471,71 @@
       "args": []
     },
     {
+      "name": "declare_abandoned",
+      "docs": [
+        "Ghost-team protection: if the team has not requested a tranche for `inactivity_secs`,",
+        "anyone can turn the treasury into a redemption pool for holders."
+      ],
+      "discriminator": [
+        109,
+        153,
+        96,
+        119,
+        109,
+        254,
+        247,
+        132
+      ],
+      "accounts": [
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "guard",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  117,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              }
+            ]
+          }
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "defend_floor",
       "docs": [
         "Permissionless: when the token trades on DAMM v2 below what the treasury holds per",
@@ -715,6 +844,87 @@
       "args": []
     },
     {
+      "name": "init_guard",
+      "docs": [
+        "Team opts the raise into the guard before it is funded (usually in the launch transaction)."
+      ],
+      "discriminator": [
+        80,
+        108,
+        68,
+        230,
+        253,
+        134,
+        39,
+        155
+      ],
+      "accounts": [
+        {
+          "name": "team",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "raise",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "guard",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  117,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "GuardParams"
+            }
+          }
+        }
+      ]
+    },
+    {
       "name": "init_raise",
       "docs": [
         "Team registers a raise for a DBC config it is about to create (or has created)."
@@ -799,6 +1009,72 @@
           }
         }
       ]
+    },
+    {
+      "name": "observe",
+      "docs": [
+        "Records the DAMM v2 price for the guard's on-chain TWAP. Permissionless crank."
+      ],
+      "discriminator": [
+        204,
+        78,
+        178,
+        115,
+        194,
+        147,
+        65,
+        74
+      ],
+      "accounts": [
+        {
+          "name": "raise",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "guard",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  117,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "damm_pool"
+        }
+      ],
+      "args": []
     },
     {
       "name": "propose_release",
@@ -1087,6 +1363,128 @@
       ]
     },
     {
+      "name": "tender_offer",
+      "docs": [
+        "On-chain Bedrock clause. The only way to take over a raise is a tender offer to every",
+        "holder: the acquirer tops the treasury up until each circulating token redeems for at",
+        "least TWAP × (1 + premium). The raise then pays holders out pro rata and the acquirer",
+        "becomes its `team`."
+      ],
+      "discriminator": [
+        56,
+        228,
+        100,
+        174,
+        243,
+        40,
+        18,
+        51
+      ],
+      "accounts": [
+        {
+          "name": "acquirer",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "guard",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  103,
+                  117,
+                  97,
+                  114,
+                  100
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "treasury_base"
+        },
+        {
+          "name": "acquirer_quote",
+          "writable": true
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "base_mint"
+        },
+        {
+          "name": "quote_token_program"
+        }
+      ],
+      "args": [
+        {
+          "name": "max_deposit",
+          "type": "u64"
+        }
+      ]
+    },
+    {
       "name": "withdraw_vote",
       "docs": [
         "Returns a voter's locked tokens once their proposal has been finalized."
@@ -1204,6 +1602,19 @@
   ],
   "accounts": [
     {
+      "name": "Guard",
+      "discriminator": [
+        54,
+        187,
+        84,
+        137,
+        192,
+        15,
+        74,
+        248
+      ]
+    },
+    {
       "name": "Raise",
       "discriminator": [
         253,
@@ -1232,6 +1643,19 @@
   ],
   "events": [
     {
+      "name": "BuyoutExecuted",
+      "discriminator": [
+        45,
+        234,
+        132,
+        108,
+        96,
+        118,
+        151,
+        99
+      ]
+    },
+    {
       "name": "FloorDefended",
       "discriminator": [
         88,
@@ -1242,6 +1666,32 @@
         130,
         219,
         47
+      ]
+    },
+    {
+      "name": "PriceObserved",
+      "discriminator": [
+        124,
+        77,
+        145,
+        27,
+        60,
+        209,
+        156,
+        248
+      ]
+    },
+    {
+      "name": "TeamAbandoned",
+      "discriminator": [
+        118,
+        68,
+        111,
+        196,
+        222,
+        225,
+        247,
+        223
       ]
     },
     {
@@ -1383,9 +1833,80 @@
       "code": 6024,
       "name": "NothingToDefend",
       "msg": "Nothing to buy back: the treasury or the circulating supply is empty"
+    },
+    {
+      "code": 6025,
+      "name": "InvalidGuard",
+      "msg": "Invalid guard parameters (inactivity ≥ 60 s, premium 10-100%, TWAP window ≥ 60 s)"
+    },
+    {
+      "code": 6026,
+      "name": "GuardNotArmed",
+      "msg": "The guard is not armed yet: arm it once the raise is funded"
+    },
+    {
+      "code": 6027,
+      "name": "TeamStillActive",
+      "msg": "The team is still within its activity window"
+    },
+    {
+      "code": 6028,
+      "name": "InvalidDammPool",
+      "msg": "Not the Meteora DAMM v2 pool of this raise"
+    },
+    {
+      "code": 6029,
+      "name": "ObservationTooSoon",
+      "msg": "Too early for a new price observation"
+    },
+    {
+      "code": 6030,
+      "name": "TwapNotReady",
+      "msg": "Not enough price observations inside the TWAP window yet"
+    },
+    {
+      "code": 6031,
+      "name": "BuyoutAboveMax",
+      "msg": "The buyout costs more than the maximum the acquirer allowed"
     }
   ],
   "types": [
+    {
+      "name": "BuyoutExecuted",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raise",
+            "type": "pubkey"
+          },
+          {
+            "name": "acquirer",
+            "type": "pubkey"
+          },
+          {
+            "name": "twap_q64",
+            "type": "u128"
+          },
+          {
+            "name": "buyout_price_q64",
+            "type": "u128"
+          },
+          {
+            "name": "circulating",
+            "type": "u64"
+          },
+          {
+            "name": "deposit",
+            "type": "u64"
+          },
+          {
+            "name": "treasury_after",
+            "type": "u64"
+          }
+        ]
+      }
+    },
     {
       "name": "FloorDefended",
       "type": {
@@ -1410,6 +1931,117 @@
           {
             "name": "backing_per_token_after",
             "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Guard",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raise",
+            "type": "pubkey"
+          },
+          {
+            "name": "inactivity_secs",
+            "docs": [
+              "Ghost-team protection: seconds without a tranche request after which anyone can",
+              "return the treasury to holders."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "armed_at",
+            "docs": [
+              "When the inactivity clock started (set by `arm_guard` once the raise is funded)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "buyout_premium_bps",
+            "docs": [
+              "On-chain Bedrock clause: premium over the TWAP that any takeover must pay every holder."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "twap_window_secs",
+            "type": "i64"
+          },
+          {
+            "name": "observe_interval_secs",
+            "docs": [
+              "Minimum spacing between price observations (twap_window / 8)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "observations",
+            "type": {
+              "array": [
+                {
+                  "defined": {
+                    "name": "Observation"
+                  }
+                },
+                16
+              ]
+            }
+          },
+          {
+            "name": "obs_head",
+            "type": "u8"
+          },
+          {
+            "name": "obs_count",
+            "type": "u8"
+          },
+          {
+            "name": "acquirer",
+            "docs": [
+              "Set when a takeover happened."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "buyout_price_q64",
+            "type": "u128"
+          },
+          {
+            "name": "abandoned",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "GuardParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "inactivity_secs",
+            "docs": [
+              "Seconds the team may go without requesting a tranche before holders get the treasury back."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "buyout_premium_bps",
+            "docs": [
+              "Premium over the TWAP a takeover must pay every holder (bps; Bedrock uses 3000 = +30%)."
+            ],
+            "type": "u16"
+          },
+          {
+            "name": "twap_window_secs",
+            "type": "i64"
           }
         ]
       }
@@ -1492,6 +2124,45 @@
           },
           {
             "name": "Released"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Observation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "ts",
+            "type": "i64"
+          },
+          {
+            "name": "price_q64",
+            "docs": [
+              "DAMM v2 price, quote atoms per base atom, Q64.64."
+            ],
+            "type": "u128"
+          }
+        ]
+      }
+    },
+    {
+      "name": "PriceObserved",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raise",
+            "type": "pubkey"
+          },
+          {
+            "name": "ts",
+            "type": "i64"
+          },
+          {
+            "name": "price_q64",
+            "type": "u128"
           }
         ]
       }
@@ -1676,6 +2347,26 @@
           },
           {
             "name": "Completed"
+          }
+        ]
+      }
+    },
+    {
+      "name": "TeamAbandoned",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raise",
+            "type": "pubkey"
+          },
+          {
+            "name": "silent_since",
+            "type": "i64"
+          },
+          {
+            "name": "declared_at",
+            "type": "i64"
           }
         ]
       }

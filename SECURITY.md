@@ -18,10 +18,14 @@ Please include the instruction, the accounts involved and a reproduction (a fail
   the token at or below its treasury backing (`defend_floor` sets `minimum_amount_out` from the
   backing) and burns what it buys.
 - Holders always get a challenge window ≥ 60 s and a reject quorum ≤ 30% of circulating supply.
+- `observe` only accepts the DAMM v2 pool of the raise (owner, discriminator and both mints are
+  checked). `tender_offer` needs ≥ 3 observations spanning half the TWAP window and a premium ≥ 10%.
 
 ## Known limitations
 
 - Votes are locked tokens without a snapshot.
+- The TWAP is a mean of permissionless observations: a sustained price manipulation across the whole
+  window could move it; the window and premium are set by the team at launch.
 - Tokens held by the DBC/DAMM pools count as circulating supply.
 - The program is upgradeable by its deployer key while it is in devnet.
 

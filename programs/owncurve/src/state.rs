@@ -4,6 +4,7 @@ pub const RAISE_SEED: &[u8] = b"raise";
 pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const ESCROW_SEED: &[u8] = b"escrow";
 pub const VOTE_SEED: &[u8] = b"vote";
+pub const GUARD_SEED: &[u8] = b"guard";
 
 pub const MAX_MILESTONES: usize = 5;
 /// Governance guard-rails a team cannot opt out of.
@@ -110,5 +111,51 @@ pub struct VoteRecord {
     pub voter: Pubkey,
     pub proposal_nonce: u32,
     pub amount: u64,
+    pub bump: u8,
+}
+
+// ---------------------------------------------------------------------------
+// Guard: holder protections that run on their own (kept in a separate account so the
+// layout of `Raise` never changes for existing raises).
+// ---------------------------------------------------------------------------
+
+/// Minimum seconds the team can be silent before anyone can declare the raise abandoned.
+pub const MIN_INACTIVITY: i64 = 60;
+/// A takeover must pay holders at least TWAP × (1 + 10%) per token; Bedrock's default is +30%.
+pub const MIN_BUYOUT_PREMIUM_BPS: u16 = 1_000;
+pub const MAX_BUYOUT_PREMIUM_BPS: u16 = 10_000;
+pub const MIN_TWAP_WINDOW: i64 = 60;
+pub const OBSERVATIONS: usize = 16;
+/// A TWAP needs at least this many price observations inside its window.
+pub const MIN_TWAP_OBSERVATIONS: u8 = 3;
+
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, Debug, Default, InitSpace)]
+pub struct Observation {
+    pub ts: i64,
+    /// DAMM v2 price, quote atoms per base atom, Q64.64.
+    pub price_q64: u128,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct Guard {
+    pub raise: Pubkey,
+    /// Ghost-team protection: seconds without a tranche request after which anyone can
+    /// return the treasury to holders.
+    pub inactivity_secs: i64,
+    /// When the inactivity clock started (set by `arm_guard` once the raise is funded).
+    pub armed_at: i64,
+    /// On-chain Bedrock clause: premium over the TWAP that any takeover must pay every holder.
+    pub buyout_premium_bps: u16,
+    pub twap_window_secs: i64,
+    /// Minimum spacing between price observations (twap_window / 8).
+    pub observe_interval_secs: i64,
+    pub observations: [Observation; OBSERVATIONS],
+    pub obs_head: u8,
+    pub obs_count: u8,
+    /// Set when a takeover happened.
+    pub acquirer: Pubkey,
+    pub buyout_price_q64: u128,
+    pub abandoned: bool,
     pub bump: u8,
 }

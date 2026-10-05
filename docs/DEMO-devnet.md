@@ -69,3 +69,36 @@ Currency [`CJxpbdZ6XrGv4umpkfAaJV183B4odUq22pqrrF83cEDp`](https://explorer.solan
 | D5 migrate to DAMM v2 |  | [view](https://explorer.solana.com/tx/3fcBnmednS7qi27Ug8KeqYUG6EAMGBkLhhx8P9UsfNw1E5E31hvu1xiGEUHQMjaXbM86FPuZkpvkSLgGfPJkPwPp?cluster=devnet) |
 | D6 panic sell on DAMM v2 |  | [view](https://explorer.solana.com/tx/9ctKvyQiHX9QWYatRgpHGvgHAwFJ2CL1bvLv457K5ucB3PbKcSdSQrPMGHKnhZd6YEBEd1gpH7ETHCT2V1Feejc?cluster=devnet) |
 | D7 defend_floor | bought back 0.0789 tNVDAx, backing +73% | [view](https://explorer.solana.com/tx/4eJ3pUd64Dd7mmN3CXxCqd78QrrcjRXoaps1K9dirFcdnC62GcCsgy9ZLyXaunFtXqtK57mq2UA4ct5fGg3NtUZx?cluster=devnet) |
+
+## Raise E · Meteora Bedrock's takeover clause, enforced on-chain
+
+Treasury [`12US696pXxmuLWwv94sEKFiteeN7V133VS7XUDKek7vB`](https://explorer.solana.com/address/12US696pXxmuLWwv94sEKFiteeN7V133VS7XUDKek7vB?cluster=devnet) · the program built its own TWAP from DAMM v2 price observations; a takeover had to top the treasury up so every holder redeems at TWAP +30%. TWAP 0.000625 → offer 0.000812 SOL per 1M tokens (+30%), deposit 0.6125 SOL · final state **liquidating**, new team AGxjAi….
+
+| Step | Result | Transaction |
+| --- | --- | --- |
+| E1 init_raise + init_guard + DBC create_config |  | [view](https://explorer.solana.com/tx/49hacWtEKcEkWjYV6raqMobPYwthpEMfdonD5iadYMCL5vyvJfw7sTz8PuLkXxTWXRFNQ6nEkH3tzcJHnUuWfr3w?cluster=devnet) |
+| E2 DBC create_pool + bind_pool (on-chain checks) |  | [view](https://explorer.solana.com/tx/L7LYCCgzFy9cYh99aR6dvnaKJU5Qoh91yQuk6qSMoeJ1hp6RpyChLkVcabfAvRiEwDtZCTtoep6BWUgmp3WNG4Y?cluster=devnet) |
+| E3 buy until the curve graduates |  | [view](https://explorer.solana.com/tx/5LPWfXpSEg8ygKxx1yXWAX8pbVS3gxs2mhnNqugG54ZXQ3DSmzJZKe76UY1yDa1i6RWe3uRkYa8Rz2jK3DtesNqt?cluster=devnet) |
+| E4 harvest + arm_guard (inactivity clock starts) | treasury 0.2000 SOL | [view](https://explorer.solana.com/tx/5EXyjBPDmAxAbdWztH8fJhBcTBGiVEp9vhMT63RJzBVoNT8MPCsjuYAmaJ9eyBKoGeCDNH3Wo9fSG9gsLZtC42VB?cluster=devnet) |
+| E5 migrate to DAMM v2 |  | [view](https://explorer.solana.com/tx/4sxft5XMwpbQBREt8RfxdMJgtrtna2789cC6qBAAxw5vMnxfcmj7r2bpS2agYon5SyhgC99Hhr2aVyJ77ZXdP6yp?cluster=devnet) |
+| E6 holder receives 5% of supply |  | [view](https://explorer.solana.com/tx/4oBGukbdwg7McMhaa9coWQPrkBFcxT1WLoahEffcmiY98DrPM1wAFvqoN9JQm9dFh5cKPR1YszUzRCCsHHHbP7WJ?cluster=devnet) |
+| E7.1 observe: record the DAMM v2 price for the TWAP |  | [view](https://explorer.solana.com/tx/3c9htoKUGVJXwiWokgPmWv7miCS9yPQN88fGuRFbcMCmJeEpN5LDvBLiVAKq2xBQSB9zRMxkGYNmSKsxGHiKPXmo?cluster=devnet) |
+| E7.2 observe: record the DAMM v2 price for the TWAP |  | [view](https://explorer.solana.com/tx/vicxcZAGW9A4ASfsWeC7zBJaGbBtNZ81vrLJe8jj8NDUBCdo4GjoZNz74V7kENwbuvBoXWEvPkmm4wFgALVNknf?cluster=devnet) |
+| E7.3 observe: record the DAMM v2 price for the TWAP |  | [view](https://explorer.solana.com/tx/28ofMim9g1UzGBnQkhErwgmuEWXkWCTprqmswGUu3Lio4rivVJkGNmFBs8Zdn5YkLAd6bwuvKQb8exDpydp2Zv1h?cluster=devnet) |
+| E7.4 observe: record the DAMM v2 price for the TWAP |  | [view](https://explorer.solana.com/tx/5uqVHMEc2rYajNfA23P5bZiPoeuXmqDw3PW662hzAbDmcB3TAibYKMmBZYjPkmEVhKYUCqBUpV5he2AbeZDFLaVs?cluster=devnet) |
+| E7.5 observe: record the DAMM v2 price for the TWAP |  | [view](https://explorer.solana.com/tx/5F4yWx66HzDif1TCXQxcc3g6VPS7SXLWhcCErLi5c1RXhTZj8nJHjTWSuSQpfD4kf9GuKD2MemtnvQvpCHgiKYBb?cluster=devnet) |
+| E8 tender_offer: takeover paying every holder TWAP +30% | TWAP 0.000625 → offer 0.000812 SOL per 1M tokens (+30%), deposit 0.6125 SOL | [view](https://explorer.solana.com/tx/2nnSY2pbdNaraRX2k4AKzMtk7ZVJeRzPnQ6jZAzJWk5AznNBezL9JNy2zjRbfdmdRnrsrixiraqrDCaibrwPVj6y?cluster=devnet) |
+| E9 holder redime a price de offer | received 0.0406 SOL: 30% above the TWAP | [view](https://explorer.solana.com/tx/3KhRtTTWfvHJHYDcqhEQFVgDzX5r3baNjcBCwhzZ2NgQJD5zTJWDQV35ooQAxifQDC3JF65Zjhd33XVrmXci5cRQ?cluster=devnet) |
+| E10 acquirer redeems its own tokens |  | [view](https://explorer.solana.com/tx/23rr8BzkimHPGs37CUDpVMpvypwtZCmjo3wg4oQHEjL7PeUZBnppAfZyqPK1jrqhYu7yk1xiShTbq2a6y5Qscpid?cluster=devnet) |
+
+## Raise F · the team went silent, the treasury went back to holders
+
+Treasury [`ELQqDD2h2P5mKuz4JjWNW4BmFKuiFUU1iJ3KJXt32ABZ`](https://explorer.solana.com/address/ELQqDD2h2P5mKuz4JjWNW4BmFKuiFUU1iJ3KJXt32ABZ?cluster=devnet) · funded 0.0800 SOL · no tranche request within the guard's window (60 s on devnet), so anyone could call `declare_abandoned` · final state **liquidating**.
+
+| Step | Result | Transaction |
+| --- | --- | --- |
+| F1 init_raise + init_guard (60 s inactivity) + DBC create_config |  | [view](https://explorer.solana.com/tx/316XbKwTk3tqiVFGUkt5yZio64YqskEt1h7mvFsjpad7k9GGtYf9P9BEi8q4oiEtjPQiWBcv8Jo3LkrCWvshNpRn?cluster=devnet) |
+| F2 DBC create_pool + bind_pool (on-chain checks) |  | [view](https://explorer.solana.com/tx/w8CtNqvMqKudeaJy4vvLFyDeG6TyVcZMhDnVzpj76JkA7G14M43Y2s8TFrAjJfD4uz3Erq7hEcXSgNzNvEggEyb?cluster=devnet) |
+| F3 buy until the curve graduates |  | [view](https://explorer.solana.com/tx/2etvgdTwfm7DqoxkLSbRrzsKEeQkL9oTMMcmYMBLz26f5BR8kC5aAW8GbSsGiRT12dUf2bY3zpA1fs3ESf4aYfNg?cluster=devnet) |
+| F4 harvest + arm_guard (inactivity clock starts) | treasury 0.0800 SOL | [view](https://explorer.solana.com/tx/2tUYicHYYeXf3dAx2eaFwsKjSedseikRGjLQKwdABUSzaWe2Ur9RT4effbjJEw8MQ82vD14ip1EysrewpXyA8fTg?cluster=devnet) |
+| F6 declare_abandoned | state "liquidating" | [view](https://explorer.solana.com/tx/3VDYMcqqCz8id1imVSesNatF8mfY4rtXJ1h72Tkhkd914oQsKskp9Af6WhCRvrUG9pSxSoZPERxDdr5Rw2nHA95u?cluster=devnet) |

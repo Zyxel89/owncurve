@@ -149,6 +149,8 @@ export type RaiseDetail = {
   floorBudget: BN;
   /** Mercado DAMM v2 tras graduar: precio y respaldo en SOL por 1.000.000 tokens. */
   market: { pricePerMillion: number; backingPerMillion: number; suggest: BN } | null;
+  /** Protecciones automáticas (null si el raise es anterior al guard). */
+  guard: Awaited<ReturnType<OwnCurve["guardState"]>>;
   user: { base: BN; sol: number; quoteBal: BN; votes: Vote[] } | null;
   /** Segundos que el reloj de la cadena va por delante (+) o por detrás (−) del navegador. */
   clockSkew: number;
@@ -219,6 +221,8 @@ export async function loadRaise(oc: OwnCurve, config: PublicKey, user: PublicKey
     }
   }
 
+  const guard = bound ? await oc.guardState(r).catch(() => null) : null;
+
   let userInfo: RaiseDetail["user"] = null;
   if (user && bound) {
     const base = await oc.tokenBalance(r.baseAta(user));
@@ -261,6 +265,7 @@ export async function loadRaise(oc: OwnCurve, config: PublicKey, user: PublicKey
     floorReserve,
     floorBudget,
     market,
+    guard,
     user: userInfo,
   };
 }

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { OwnCurve, evidence, stateName } from "../../../scripts/lib/owncurve";
 import featuredCfg from "../featured.json";
 import { Guarantees } from "../components/Guarantees";
+import { GuardPanel } from "../components/GuardPanel";
 import { VaultBar, fmtLeft } from "../components/VaultBar";
 import { makeBrowserNet } from "../lib/browserNet";
 import { devnetFaucet, mintTestQuoteIxs } from "../../../scripts/lib/quotes";
@@ -258,6 +259,24 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
         () => oc.defendFloor(r, d.market!.suggest),
         true,
       );
+    const g = d.guard;
+    if (g && d.state === "funded" && !d.proposal && g.abandonableAt !== null && now >= g.abandonableAt)
+      btn(
+        "abandon",
+        "The team went silent: return the treasury to holders",
+        "Done. Holders can now redeem their tokens for the treasury.",
+        () => oc.declareAbandoned(r),
+        true,
+      );
+    if (g && d.curve?.migrated && ["funded", "completed"].includes(d.state) && !g.acquired && now >= g.nextObserveAt)
+      btn("observe", "Record the DAMM v2 price for the takeover TWAP", "Price recorded.", () => oc.observe(r));
+    if (g && g.twapReady && ["funded", "completed"].includes(d.state))
+      btn(
+        "takeover",
+        `Take over this project: deposit ${fmtSol(g.buyoutDeposit)} ${SYM} for the holders`,
+        "Takeover done. Every holder can now redeem at the buyout price.",
+        () => oc.tenderOffer(r, g.buyoutDeposit.muln(102).divn(100).addn(1)),
+      );
     if (["funded", "completed", "liquidating"].includes(d.state)) {
       if (d.curve && !d.curve.migrated)
         btn("migrate", "Graduate the pool to Meteora DAMM v2", "The token now trades on DAMM v2.", async () => (await oc.migrate(r)).sig);
@@ -296,6 +315,7 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
         </div>
       )}
       {d.market && <FloorPanel d={d} />}
+      <GuardPanel d={d} />
       {!acc.signer && <p className="muted">Connect a wallet or use a test wallet to buy, object or redeem.</p>}
       {acc.signer && (
         <p className="fine">

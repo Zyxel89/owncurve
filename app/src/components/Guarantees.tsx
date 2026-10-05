@@ -40,6 +40,18 @@ export function Guarantees({ d }: { d: RaiseDetail }) {
       text: "Every tranche request carries a public link to the delivered work and its SHA-256 on-chain.",
     },
   ];
+  if (d.guard) {
+    items.push(
+      {
+        ok: true,
+        text: `If the team goes ${Math.round(d.guard.inactivitySecs / 60)} min without requesting a tranche, anyone can return the treasury to holders.`,
+      },
+      {
+        ok: true,
+        text: `Taking the project over requires paying every holder the TWAP +${d.guard.buyoutPremiumBps / 100}% (Bedrock's clause, enforced on-chain).`,
+      },
+    );
+  }
   const link = explorerAddress(treasury);
   return (
     <section className="guarantees" aria-labelledby="g-title">

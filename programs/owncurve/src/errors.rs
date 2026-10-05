@@ -52,4 +52,18 @@ pub enum OwnCurveError {
     FloorBudgetExceeded,
     #[msg("Nothing to buy back: the treasury or the circulating supply is empty")]
     NothingToDefend,
+    #[msg("Invalid guard parameters (inactivity ≥ 60 s, premium 10-100%, TWAP window ≥ 60 s)")]
+    InvalidGuard,
+    #[msg("The guard is not armed yet: arm it once the raise is funded")]
+    GuardNotArmed,
+    #[msg("The team is still within its activity window")]
+    TeamStillActive,
+    #[msg("Not the Meteora DAMM v2 pool of this raise")]
+    InvalidDammPool,
+    #[msg("Too early for a new price observation")]
+    ObservationTooSoon,
+    #[msg("Not enough price observations inside the TWAP window yet")]
+    TwapNotReady,
+    #[msg("The buyout costs more than the maximum the acquirer allowed")]
+    BuyoutAboveMax,
 }
