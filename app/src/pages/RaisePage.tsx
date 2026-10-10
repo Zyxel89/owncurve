@@ -260,6 +260,13 @@ function Actions({ d, reload }: { d: RaiseDetail; reload: () => void }) {
         true,
       );
     const g = d.guard;
+    if (d.budget && isTeam && d.state === "funded" && d.budget.available.gtn(0))
+      btn(
+        "draw",
+        `Draw this period's budget (${fmtSol(d.budget.available)} ${SYM})`,
+        "Budget drawn. It will be deducted from your next tranche.",
+        () => oc.drawBudget(r),
+      );
     if (g && d.state === "funded" && !d.proposal && g.abandonableAt !== null && now >= g.abandonableAt)
       btn(
         "abandon",

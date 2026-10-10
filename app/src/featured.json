@@ -1,4 +1,5 @@
 {
+  "keeper": "GyxYtGkSsasfMYnEqgnLHtsveev7LCWN7AuW9bSs9EmB",
   "featured": [
     {
       "config": "7sDbgBXGy6o5AWs6NpCUG8EfuRCTBqzKG8SNZ8Prb7Ra",
@@ -29,6 +30,11 @@
       "config": "DVW29fmVR36A65xViVbuJNTzMMAvJro8vm4tpvX7MimF",
       "label": "Demo · the team went silent",
       "blurb": "No tranche request inside the guard window, so anyone could hand the treasury back to holders."
+    },
+    {
+      "config": "68WZeVdNN4vNujsArou2es2P59V6VtuYPKipAmnSu4Y",
+      "label": "Live · budget + keeper",
+      "blurb": "The team draws a bounded budget as an advance on its next tranche; the public keeper settles tranches and records the TWAP every 10 minutes."
     }
   ],
   "testTeams": [

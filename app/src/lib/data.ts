@@ -151,6 +151,7 @@ export type RaiseDetail = {
   market: { pricePerMillion: number; backingPerMillion: number; suggest: BN } | null;
   /** Protecciones automáticas (null si el raise es anterior al guard). */
   guard: Awaited<ReturnType<OwnCurve["guardState"]>>;
+  budget: Awaited<ReturnType<OwnCurve["budgetState"]>>;
   user: { base: BN; sol: number; quoteBal: BN; votes: Vote[] } | null;
   /** Segundos que el reloj de la cadena va por delante (+) o por detrás (−) del navegador. */
   clockSkew: number;
@@ -222,6 +223,7 @@ export async function loadRaise(oc: OwnCurve, config: PublicKey, user: PublicKey
   }
 
   const guard = bound ? await oc.guardState(r).catch(() => null) : null;
+  const budget = bound ? await oc.budgetState(r).catch(() => null) : null;
 
   let userInfo: RaiseDetail["user"] = null;
   if (user && bound) {
@@ -266,6 +268,7 @@ export async function loadRaise(oc: OwnCurve, config: PublicKey, user: PublicKey
     floorBudget,
     market,
     guard,
+    budget,
     user: userInfo,
   };
 }

@@ -449,3 +449,63 @@ test("2.11 observe rechaza un pool que no es el DAMM v2 del raise", async () => 
   const ix = await oc.m.observe().accountsStrict({ raise: r.raise, guard: r.guard, dammPool: r.pool }).instruction();
   await expectError(oc.net.send("observe con el pool DBC", [ix], []), "InvalidDammPool");
 });
+
+// ------------------------------------------------------------------ presupuesto entre hitos
+test("2.12 presupuesto mensual: adelantos acotados que se descuentan del siguiente tramo; nunca se paga de más", async () => {
+  const { oc, net, r, p } = await fundedRaise({ budget: { amount: 0.02, periodSecs: 60 } });
+  const teamQuote = r.quoteAta(net.payer.publicKey);
+  const bal = () => oc.tokenBalance(teamQuote);
+  const funded = n((await raiseOf(r)).fundedAmount);
+  const payable = funded.sub(funded.muln(p.floorReserveBps).divn(10_000));
+  const per = new BN(0.02 * LAMPORTS_PER_SOL);
+
+  await oc.drawBudget(r);
+  assert.ok((await bal()).eq(per), "primer periodo: 0,02");
+  await expectError(oc.drawBudget(r), "NothingToDraw");
+  await net.advanceTime(61);
+  await oc.drawBudget(r);
+  assert.ok((await bal()).eq(per.muln(2)));
+
+  // el tramo 1 paga solo lo que falta
+  const t1 = payable.muln(p.tranchesBps[0]).divn(10_000);
+  await oc.propose(r);
+  await net.advanceTime(p.challengeSecs + 1);
+  await oc.finalize(r);
+  assert.ok((await bal()).eq(t1), `tras el tramo 1 el equipo tiene exactamente el tramo 1 (${t1})`);
+
+  // muchos periodos después, el adelanto no pasa del siguiente tramo
+  await net.advanceTime(60 * 20);
+  await oc.drawBudget(r);
+  const t2 = payable.muln(p.tranchesBps[1]).divn(10_000);
+  assert.ok((await bal()).eq(t1.add(t2)), "adelanto acotado al tramo 2");
+  await expectError(oc.drawBudget(r), "NothingToDraw");
+  await oc.propose(r);
+  await net.advanceTime(p.challengeSecs + 1);
+  await oc.finalize(r);
+  assert.ok((await bal()).eq(t1.add(t2)), "el tramo 2 ya estaba adelantado: paga 0");
+  await oc.propose(r);
+  await net.advanceTime(p.challengeSecs + 1);
+  await oc.finalize(r);
+  const raise = await raiseOf(r);
+  assert.equal(stateName(raise.state), "completed");
+  assert.ok((await bal()).eq(payable) && n(raise.releasedAmount).eq(payable), "total cobrado = lo cobrable, ni un lamport más");
+});
+
+test("2.12 el presupuesto se corta si los holders rechazan un tramo", async () => {
+  const { oc, net, r, p } = await fundedRaise({ budget: { amount: 0.01, periodSecs: 60 } });
+  await oc.drawBudget(r);
+  const voter = Keypair.generate();
+  await net.fund(voter.publicKey, LAMPORTS_PER_SOL);
+  const stake = (await circulating(oc, r)).muln(p.quorumBps + 500).divn(10_000);
+  await oc.transferBase(r, net.payer, voter.publicKey, stake);
+  await oc.propose(r);
+  await oc.reject(r, voter, stake);
+  await net.advanceTime(p.challengeSecs + 1);
+  await oc.finalize(r);
+  await net.advanceTime(61);
+  await expectError(oc.drawBudget(r), "InvalidState");
+  await expectError((async () => {
+    const s = await setup({ budget: { amount: 0.01, periodSecs: 10 } });
+    await s.oc.createRaise(s.p);
+  })(), "InvalidBudget");
+});

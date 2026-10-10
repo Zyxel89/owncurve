@@ -62,6 +62,7 @@ Every command prints JSON. Below, `owncurve` means `npx tsx scripts/cli.ts`.
 | `collect-fees <config>` | anyone | Curve trading fees → treasury |
 | `settle <config>` | anyone | After the window: pay the tranche, or open redemptions if quorum objected |
 | `defend-floor <config> [--spend X]` | anyone | Treasury buys back below backing and burns |
+| `draw-budget <config>` | team | Draw this period's operating budget (advance on the next tranche) |
 | `observe <config>` | anyone | Record the DAMM v2 price into the raise's on-chain TWAP |
 | `declare-abandoned <config>` | anyone | Team silent past the guard window → holders can redeem the treasury |
 | `tender-offer <config> [--max X]` | anyone | Take the project over by paying every holder TWAP + premium |

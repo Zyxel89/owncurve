@@ -39,6 +39,8 @@ export const COMMANDS: CommandSpec[] = [
       { name: "inactivity", type: "number", description: "Ghost-team guard: seconds without a tranche request after which anyone can return the treasury to holders (default 300 on devnet)" },
       { name: "premium", type: "number", description: "On-chain Bedrock clause: % over the TWAP a takeover must pay every holder, 10–100 (default 30)" },
       { name: "twap", type: "number", description: "TWAP window in seconds for the takeover price (default 120)" },
+      { name: "budget", type: "number", description: "Operating budget per period, in the raise currency (default: none)" },
+      { name: "budget-period", type: "number", description: "Budget period in seconds (default 600 on devnet; ~30 days on mainnet)" },
     ],
   },
   {
@@ -63,6 +65,13 @@ export const COMMANDS: CommandSpec[] = [
     who: "anyone",
     description: "When the DAMM v2 price is below the treasury backing, make the treasury buy tokens back (never above backing) and burn them.",
     params: [CONFIG, { name: "spend", type: "number", description: "Amount to spend in the raise currency (default: suggested amount)" }],
+  },
+  {
+    name: "draw-budget",
+    write: true,
+    who: "team",
+    description: "Draw this period's operating budget: an advance on the next tranche, capped by it; stops if the raise is liquidated.",
+    params: [CONFIG],
   },
   { name: "observe", write: true, who: "anyone", description: "Record the DAMM v2 price into the raise's on-chain TWAP (needed before a takeover).", params: [CONFIG] },
   {
@@ -275,6 +284,18 @@ async function show(oc: OwnCurve, config: string) {
     };
   }
 
+  const bs = bound ? await oc.budgetState(r).catch(() => null) : null;
+  const budget = bs
+    ? {
+        perPeriod: ui(bs.monthly, d),
+        periodSecs: bs.periodSecs,
+        drawnTotal: ui(bs.drawnTotal, d),
+        advancedOnNextTranche: ui(bs.advancedUnsettled, d),
+        availableNow: ui(bs.available, d),
+        nextPeriodInSecs: Math.max(0, bs.nextPeriodAt - bs.now),
+      }
+    : null;
+
   const can: string[] = [];
   if (state === "bonding" && curve && !curve.complete) can.push("buy");
   if (state === "bonding" && curve?.complete) can.push("harvest");
@@ -289,6 +310,7 @@ async function show(oc: OwnCurve, config: string) {
   if (guard && ["funded", "completed"].includes(state) && curve?.migrated && guard.bedrock.nextObserveInSecs === 0) can.push("observe");
   if (guard && state === "funded" && !proposal && guard.ghostTeam.secondsLeft === 0) can.push("declare-abandoned");
   if (guard && ["funded", "completed"].includes(state) && guard.bedrock.twapReady) can.push("tender-offer");
+  if (budget && state === "funded" && wallet?.isTeam && budget.availableNow > 0) can.push("draw-budget");
 
   return {
     config,
@@ -314,6 +336,7 @@ async function show(oc: OwnCurve, config: string) {
     backing,
     market,
     guard,
+    budget,
     wallet,
     can,
   };
@@ -349,6 +372,7 @@ export async function runCommand(base: Net, cmd: string, input: Record<string, a
           challengeSecs: num("window", 60)!,
           quorumBps: Math.round(num("quorum", 10)! * 100),
           floorReserveBps: Math.round(num("floor", 20)! * 100),
+          budget: num("budget") ? { amount: num("budget")!, periodSecs: num("budget-period", 600)! } : null,
           guard: {
             inactivitySecs: num("inactivity", DEFAULT_GUARD.inactivitySecs)!,
             buyoutPremiumBps: Math.round(num("premium", DEFAULT_GUARD.buyoutPremiumBps / 100)! * 100),
@@ -394,6 +418,12 @@ export async function runCommand(base: Net, cmd: string, input: Record<string, a
         const amount = num("spend") !== undefined ? toUnits(num("spend")!, quote.decimals) : await oc.suggestDefend(r);
         if (amount.isZero()) return { ok: false, reason: "The market price is not below the treasury backing (or the floor budget is empty)." };
         return done(await oc.defendFloor(r, amount), { spent: ui(amount, quote.decimals), quote: quote.symbol });
+      }
+      case "draw-budget": {
+        const { r, quote } = await raiseFor(oc, input.config);
+        const b = await oc.budgetState(r);
+        if (!b) return { ok: false, error: "This raise has no budget." };
+        return done(await oc.drawBudget(r), { available: ui(b.available, quote.decimals), quote: quote.symbol });
       }
       case "observe": {
         const { r } = await raiseFor(oc, input.config);

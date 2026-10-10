@@ -43,6 +43,7 @@ export function Header() {
           <a href="#/">Raises</a>
           <a href="#/new">Launch a raise</a>
           <a href="#/scan">Rug check</a>
+          <a href="#/keeper">Keeper</a>
         </nav>
         <div className="account">
           <span className="network" title="All transactions use this network">

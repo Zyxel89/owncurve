@@ -5,6 +5,9 @@ pub const TREASURY_SEED: &[u8] = b"treasury";
 pub const ESCROW_SEED: &[u8] = b"escrow";
 pub const VOTE_SEED: &[u8] = b"vote";
 pub const GUARD_SEED: &[u8] = b"guard";
+pub const BUDGET_SEED: &[u8] = b"budget";
+/// Shortest budget period (devnet demos use minutes; mainnet would use ~30 days).
+pub const MIN_BUDGET_PERIOD: i64 = 60;
 
 pub const MAX_MILESTONES: usize = 5;
 /// Governance guard-rails a team cannot opt out of.
@@ -157,5 +160,23 @@ pub struct Guard {
     pub acquirer: Pubkey,
     pub buyout_price_q64: u128,
     pub abandoned: bool,
+    pub bump: u8,
+}
+
+/// Operating budget between milestones (MetaDAO-style monthly allowance, but bounded):
+/// each period the team may draw `monthly_amount`, as an ADVANCE on its next tranche. The
+/// next tranche pays the rest; draws stop when the raise is liquidated (rejection, silence
+/// or takeover), and silence still triggers the ghost-team switch.
+#[account]
+#[derive(InitSpace)]
+pub struct Budget {
+    pub raise: Pubkey,
+    pub monthly_amount: u64,
+    pub period_secs: i64,
+    /// Start of the first period (first draw).
+    pub start_at: i64,
+    pub drawn_total: u64,
+    /// Advances not yet netted against a released tranche.
+    pub advanced_unsettled: u64,
     pub bump: u8,
 }

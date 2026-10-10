@@ -4,6 +4,7 @@ import { Create } from "./pages/Create";
 import { Home } from "./pages/Home";
 import { RaisePage } from "./pages/RaisePage";
 import { Scan } from "./pages/Scan";
+import { Keeper } from "./pages/Keeper";
 import { AccountProvider } from "./lib/wallet";
 
 function useHashRoute() {
@@ -25,7 +26,7 @@ export function App() {
   return (
     <AccountProvider>
       <Header />
-      {hash === "#/new" ? <Create /> : hash.startsWith("#/scan") ? <Scan /> : raise ? <RaisePage config={raise[1]} /> : <Home />}
+      {hash === "#/new" ? <Create /> : hash.startsWith("#/scan") ? <Scan /> : hash === "#/keeper" ? <Keeper /> : raise ? <RaisePage config={raise[1]} /> : <Home />}
       <footer className="foot">
         <p>
           OwnCurve runs on Meteora's Dynamic Bonding Curve and DAMM v2.{" "}

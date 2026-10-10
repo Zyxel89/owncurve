@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import featuredCfg from "../featured.json";
 import study from "../study.json";
+import { KEEPER } from "./Keeper";
 import { RaiseRow, listRaises, readOnlyClient, usePoll } from "../lib/data";
 
 const fmt = (v: number) => v.toLocaleString("en-US", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
@@ -114,9 +115,54 @@ export function Home() {
           </>
         )}
       </section>
+
+      <section className="compare" aria-labelledby="cmp-title">
+        <h2 id="cmp-title">How OwnCurve compares</h2>
+        <table>
+          <thead>
+            <tr>
+              <th scope="col"></th>
+              <th scope="col">OwnCurve</th>
+              <th scope="col">Reviewer-approved escrow</th>
+              <th scope="col">Futarchy treasury</th>
+              <th scope="col">Standard DBC launch</th>
+            </tr>
+          </thead>
+          <tbody>
+            {COMPARE.map(([label, ...cells]) => (
+              <tr key={label}>
+                <th scope="row">{label}</th>
+                {cells.map((c, i) => (
+                  <td key={i} className={i === 0 ? "yes" : c === "No" ? "no" : ""}>
+                    {c}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {KEEPER && (
+          <p className="fine">
+            Protections run on their own: a <a href="#/keeper">public keeper</a> settles tranches, records prices and returns
+            the treasury of silent teams every 10 minutes.
+          </p>
+        )}
+      </section>
     </main>
   );
 }
+
+const COMPARE: string[][] = [
+  ["Raise held on-chain, paid per milestone", "Yes", "Yes", "Yes (monthly budget)", "No"],
+  ["Who can stop a payment", "Holders (objection quorum)", "3–5 trusted reviewers", "Prediction markets", "No one"],
+  ["Holders get the treasury back", "Rejection, silent team or takeover", "Rejection or missed deadline", "—", "No"],
+  ["Price floor buyback below backing", "Automatic, capped at backing", "No", "Through a proposal", "No"],
+  ["Takeover must pay holders TWAP + premium", "Enforced on-chain", "No", "—", "No"],
+  ["Graduated liquidity", "100% locked to the treasury", "Locked", "Part of the raise paired in an AMM", "Withdrawable in 63.6% of launches"],
+  ["Raise in", "SOL, USDC, tokenized stocks", "SOL", "USDC", "Any"],
+  ["Runs without humans", "Public keeper every 10 min", "—", "—", "—"],
+  ["AI agents", "MCP server + Agent Skill", "No", "—", "No"],
+];
 
 function RaiseTable({ rows }: { rows: RaiseRow[] }) {
   return (

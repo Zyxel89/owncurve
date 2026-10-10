@@ -38,6 +38,8 @@ export function Create() {
   const [silentMin, setSilentMin] = useState("5");
   const [premium, setPremium] = useState("30");
   const [twapSecs, setTwapSecs] = useState("120");
+  const [budgetAmt, setBudgetAmt] = useState("0");
+  const [budgetMin, setBudgetMin] = useState("10");
   const [step, setStep] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,6 +90,7 @@ export function Create() {
         challengeSecs: Math.round(Number(windowSecs)),
         quorumBps: Math.round(Number(quorum) * 100),
         floorReserveBps: Math.round(Number(floor) * 100),
+        budget: Number(budgetAmt) > 0 ? { amount: Number(budgetAmt), periodSecs: Math.max(60, Math.round(Number(budgetMin) * 60)) } : null,
         guard: {
           inactivitySecs: Math.round(Number(silentMin) * 60),
           buyoutPremiumBps: Math.round(Number(premium) * 100),
@@ -192,6 +195,15 @@ export function Create() {
             Takeover premium over the TWAP (%)
             <input inputMode="decimal" value={premium} onChange={(e) => setPremium(e.target.value)} />
             <small>Meteora Bedrock's clause, enforced by the program: taking the project over means paying every holder this much over the market price.</small>
+          </label>
+          <label>
+            Operating budget per period ({sym}, 0 = none)
+            <input inputMode="decimal" value={budgetAmt} onChange={(e) => setBudgetAmt(e.target.value)} />
+            <small>Like MetaDAO's monthly allowance, but bounded: each draw is an advance on your next tranche and stops if holders reject a tranche.</small>
+          </label>
+          <label>
+            Budget period (minutes)
+            <input inputMode="numeric" value={budgetMin} onChange={(e) => setBudgetMin(e.target.value)} />
           </label>
           <label>
             TWAP window (seconds)

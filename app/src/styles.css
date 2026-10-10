@@ -670,6 +670,40 @@ td a {
     grid-template-columns: 1fr;
   }
 }
+.keeper-log {
+  list-style: none;
+  padding: 0;
+  margin: var(--s4) 0 0;
+}
+.keeper-log li {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 0.95rem;
+}
+.keeper-log .when {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+.keeper-log li.bad {
+  color: var(--intaglio);
+}
+.compare {
+  margin: var(--s5) 0;
+}
+.compare table td,
+.compare table th {
+  font-size: 0.9rem;
+}
+.compare td.yes {
+  color: var(--vault);
+  font-weight: 600;
+}
+.compare td.no {
+  color: var(--ink-soft);
+}
 .guard-panel {
   border: 1.5px solid var(--ink);
   border-radius: 8px;

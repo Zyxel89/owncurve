@@ -1,0 +1,40 @@
+# OwnCurve keeper: every 10 minutes it does the permissionless jobs that keep holder protections
+# live on devnet (harvest, arm guards, settle tranches, record TWAP prices, defend floors, return
+# the treasury of silent teams). Its wallet is a devnet key in the KEEPER_KEY secret.
+name: keeper
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: keeper
+  cancel-in-progress: false
+jobs:
+  keep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Keeper wallet
+        run: printf '%s' "$KEEPER_KEY" > "$RUNNER_TEMP/keeper.json"
+        env:
+          KEEPER_KEY: ${{ secrets.KEEPER_KEY }}
+      - name: Run keeper
+        run: npx tsx scripts/keeper.ts
+        env:
+          CLUSTER: devnet
+          RPC_URL: ${{ vars.KEEPER_RPC_URL || 'https://api.devnet.solana.com' }}
+          WALLET: ${{ runner.temp }}/keeper.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: keeper-run
+          path: keeper-run.json
+          retention-days: 7

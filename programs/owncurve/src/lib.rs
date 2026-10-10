@@ -50,6 +50,21 @@ pub struct GuardParams {
     pub twap_window_secs: i64,
 }
 
+#[derive(AnchorSerialize, AnchorDeserialize, Clone)]
+pub struct BudgetParams {
+    /// Quote atoms the team may draw per period.
+    pub monthly_amount: u64,
+    pub period_secs: i64,
+}
+
+#[event]
+pub struct BudgetDrawn {
+    pub raise: Pubkey,
+    pub amount: u64,
+    pub drawn_total: u64,
+    pub advanced_on_next_tranche: u64,
+}
+
 #[event]
 pub struct TeamAbandoned {
     pub raise: Pubkey,
@@ -541,28 +556,50 @@ pub mod owncurve {
         let is_last = (idx + 1) as u8 == raise.milestone_count;
         let tranche = tranche_amount(raise, idx);
 
+        // Budget advances already paid count against this tranche (the last one is net already).
+        let mut pay = tranche;
+        let budget_info = ctx.accounts.budget.to_account_info();
+        let mut budget: Option<Budget> = None;
+        if budget_info.owner == &crate::ID && !budget_info.data_is_empty() {
+            let mut b = Budget::try_deserialize(&mut &budget_info.try_borrow_data()?[..])?;
+            if !is_last {
+                let used = b.advanced_unsettled.min(tranche);
+                pay = tranche - used;
+                b.advanced_unsettled -= used;
+            } else {
+                b.advanced_unsettled = 0;
+            }
+            budget = Some(b);
+        }
+
         let config_key = raise.dbc_config;
         let seeds: &[&[u8]] = &[TREASURY_SEED, config_key.as_ref(), &[raise.treasury_bump]];
-        token_interface::transfer_checked(
-            CpiContext::new_with_signer(
-                ctx.accounts.quote_token_program.key(),
-                TransferChecked {
-                    from: ctx.accounts.treasury_quote.to_account_info(),
-                    mint: ctx.accounts.quote_mint.to_account_info(),
-                    to: ctx.accounts.team_quote.to_account_info(),
-                    authority: ctx.accounts.treasury.to_account_info(),
-                },
-                &[seeds],
-            ),
-            tranche,
-            ctx.accounts.quote_mint.decimals,
-        )?;
+        if pay > 0 {
+            token_interface::transfer_checked(
+                CpiContext::new_with_signer(
+                    ctx.accounts.quote_token_program.key(),
+                    TransferChecked {
+                        from: ctx.accounts.treasury_quote.to_account_info(),
+                        mint: ctx.accounts.quote_mint.to_account_info(),
+                        to: ctx.accounts.team_quote.to_account_info(),
+                        authority: ctx.accounts.treasury.to_account_info(),
+                    },
+                    &[seeds],
+                ),
+                pay,
+                ctx.accounts.quote_mint.decimals,
+            )?;
+        }
+        if let Some(b) = budget {
+            let mut data = budget_info.try_borrow_mut_data()?;
+            b.try_serialize(&mut &mut data[..])?;
+        }
 
         let raise = &mut ctx.accounts.raise;
         raise.milestones[idx].status = MilestoneStatus::Released;
         raise.released_amount = raise
             .released_amount
-            .checked_add(tranche)
+            .checked_add(pay)
             .ok_or(OwnCurveError::MathOverflow)?;
         raise.proposal_nonce += 1;
         if is_last {
@@ -788,6 +825,74 @@ pub mod owncurve {
             deposit,
             treasury_after: ctx.accounts.treasury_quote.amount,
         });
+        Ok(())
+    }
+    // -----------------------------------------------------------------------
+    // Operating budget: bounded monthly allowance, advanced against the next tranche
+    // -----------------------------------------------------------------------
+
+    pub fn init_budget(ctx: Context<InitBudget>, params: BudgetParams) -> Result<()> {
+        let raise = &ctx.accounts.raise;
+        require!(
+            raise.state == RaiseState::Pending || raise.state == RaiseState::Bonding,
+            OwnCurveError::InvalidState
+        );
+        require!(params.monthly_amount > 0 && params.period_secs >= MIN_BUDGET_PERIOD, OwnCurveError::InvalidBudget);
+        let b = &mut ctx.accounts.budget;
+        b.raise = raise.key();
+        b.monthly_amount = params.monthly_amount;
+        b.period_secs = params.period_secs;
+        b.bump = ctx.bumps.budget;
+        Ok(())
+    }
+
+    /// Team draws what has accrued this period, capped by what is still un-advanced on its
+    /// next tranche. Only while the raise is Funded.
+    pub fn draw_budget(ctx: Context<DrawBudget>) -> Result<()> {
+        let raise = &ctx.accounts.raise;
+        require!(raise.state == RaiseState::Funded, OwnCurveError::InvalidState);
+        let now = Clock::get()?.unix_timestamp;
+        let count = raise.milestone_count as usize;
+        let next = raise.milestones[..count]
+            .iter()
+            .position(|m| m.status != MilestoneStatus::Released)
+            .ok_or(OwnCurveError::NothingToDraw)?;
+        let next_amount = tranche_amount(raise, next);
+
+        let b = &mut ctx.accounts.budget;
+        if b.start_at == 0 {
+            b.start_at = now.max(1);
+        }
+        let periods = ((now - b.start_at) / b.period_secs + 1) as u64;
+        let accrued = b.monthly_amount.checked_mul(periods).ok_or(OwnCurveError::MathOverflow)?;
+        let amount = accrued
+            .saturating_sub(b.drawn_total)
+            .min(next_amount.saturating_sub(b.advanced_unsettled))
+            .min(ctx.accounts.treasury_quote.amount);
+        require!(amount > 0, OwnCurveError::NothingToDraw);
+
+        let config_key = raise.dbc_config;
+        let seeds: &[&[u8]] = &[TREASURY_SEED, config_key.as_ref(), &[raise.treasury_bump]];
+        token_interface::transfer_checked(
+            CpiContext::new_with_signer(
+                ctx.accounts.quote_token_program.key(),
+                TransferChecked {
+                    from: ctx.accounts.treasury_quote.to_account_info(),
+                    mint: ctx.accounts.quote_mint.to_account_info(),
+                    to: ctx.accounts.team_quote.to_account_info(),
+                    authority: ctx.accounts.treasury.to_account_info(),
+                },
+                &[seeds],
+            ),
+            amount,
+            ctx.accounts.quote_mint.decimals,
+        )?;
+        b.drawn_total += amount;
+        b.advanced_unsettled += amount;
+        let (drawn_total, advanced) = (b.drawn_total, b.advanced_unsettled);
+        let raise = &mut ctx.accounts.raise;
+        raise.released_amount = raise.released_amount.checked_add(amount).ok_or(OwnCurveError::MathOverflow)?;
+        emit!(BudgetDrawn { raise: raise.key(), amount, drawn_total, advanced_on_next_tranche: advanced });
         Ok(())
     }
 }
@@ -1163,6 +1268,9 @@ pub struct Finalize<'info> {
     #[account(address = raise.base_mint)]
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
     pub quote_token_program: Interface<'info, TokenInterface>,
+    /// CHECK: the raise's Budget PDA; empty when the raise has no budget.
+    #[account(mut, seeds = [BUDGET_SEED, raise.key().as_ref()], bump)]
+    pub budget: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -1333,5 +1441,36 @@ pub struct TenderOffer<'info> {
     pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
     #[account(address = raise.base_mint)]
     pub base_mint: Box<InterfaceAccount<'info, Mint>>,
+    pub quote_token_program: Interface<'info, TokenInterface>,
+}
+
+#[derive(Accounts)]
+pub struct InitBudget<'info> {
+    #[account(mut, address = raise.team)]
+    pub team: Signer<'info>,
+    #[account(seeds = [RAISE_SEED, raise.dbc_config.as_ref()], bump = raise.bump)]
+    pub raise: Box<Account<'info, Raise>>,
+    #[account(init, payer = team, space = 8 + Budget::INIT_SPACE, seeds = [BUDGET_SEED, raise.key().as_ref()], bump)]
+    pub budget: Box<Account<'info, Budget>>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct DrawBudget<'info> {
+    #[account(address = raise.team)]
+    pub team: Signer<'info>,
+    #[account(mut, seeds = [RAISE_SEED, raise.dbc_config.as_ref()], bump = raise.bump)]
+    pub raise: Box<Account<'info, Raise>>,
+    #[account(mut, seeds = [BUDGET_SEED, raise.key().as_ref()], bump = budget.bump)]
+    pub budget: Box<Account<'info, Budget>>,
+    /// CHECK: PDA signer
+    #[account(seeds = [TREASURY_SEED, raise.dbc_config.as_ref()], bump = raise.treasury_bump)]
+    pub treasury: UncheckedAccount<'info>,
+    #[account(mut, token::mint = quote_mint, token::authority = treasury, token::token_program = quote_token_program)]
+    pub treasury_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(mut, token::mint = quote_mint, token::authority = raise.team, token::token_program = quote_token_program)]
+    pub team_quote: Box<InterfaceAccount<'info, TokenAccount>>,
+    #[account(address = raise.quote_mint)]
+    pub quote_mint: Box<InterfaceAccount<'info, Mint>>,
     pub quote_token_program: Interface<'info, TokenInterface>,
 }

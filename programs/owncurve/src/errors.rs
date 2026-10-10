@@ -66,4 +66,8 @@ pub enum OwnCurveError {
     TwapNotReady,
     #[msg("The buyout costs more than the maximum the acquirer allowed")]
     BuyoutAboveMax,
+    #[msg("Invalid budget (amount > 0, period ≥ 60 s)")]
+    InvalidBudget,
+    #[msg("Nothing to draw: this period's budget is used or the next tranche is fully advanced")]
+    NothingToDraw,
 }

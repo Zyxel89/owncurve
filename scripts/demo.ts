@@ -20,7 +20,7 @@ import { TEST_QUOTES, createTestQuote, devnetFaucet, mintTestQuoteIxs, testQuote
 
 type Step = { name: string; sig?: string; note?: string };
 type RaiseState = { config: number[]; baseMint: number[]; nftMints?: string[]; steps: Step[] };
-type DemoState = { version?: number; evidenceBase?: string; programId: string; voter: number[]; a: RaiseState; b: RaiseState; c?: RaiseState; d?: RaiseState; e?: RaiseState; f?: RaiseState; holderE?: number[] };
+type DemoState = { version?: number; evidenceBase?: string; programId: string; voter: number[]; a: RaiseState; b: RaiseState; c?: RaiseState; d?: RaiseState; e?: RaiseState; f?: RaiseState; g?: RaiseState; holderE?: number[] };
 // v2: piso de precio + evidencia por tramo (las cuentas Raise cambiaron de tamaño)
 const DEMO_VERSION = 2;
 const EVIDENCE_BASE = process.env.EVIDENCE_BASE ?? "https://github.com/Zyxel89/owncurve";
@@ -66,6 +66,7 @@ async function main() {
   st.d ??= newRaiseState();
   st.e ??= newRaiseState();
   st.f ??= newRaiseState();
+  st.g ??= newRaiseState();
   st.holderE ??= Array.from(Keypair.generate().secretKey);
   const save = () => {
     fs.mkdirSync(".owncurve", { recursive: true });
@@ -336,6 +337,31 @@ async function main() {
   await step(st.f!, "F6 declare_abandoned", () => whenReady(() => oc.declareAbandoned(F), /TeamStillActive/), async () => `estado "${await F.state()}"`);
   const finalF = await F.fetch();
 
+  // ================================================================ RAISE G: presupuesto + keeper
+  console.log(`\n  ── Raise G · presupuesto mensual, en manos del keeper ──`);
+  const pG: RaiseParams = {
+    ...DEFAULT_PARAMS,
+    threshold: 0.2,
+    guard: { inactivitySecs: 7 * 24 * 3600, buyoutPremiumBps: 3000, twapWindowSecs: 3600 },
+    budget: { amount: 0.005, periodSecs: 600 },
+  };
+  const G = new Raise(oc, kp(st.g!.config).publicKey, kp(st.g!.baseMint).publicKey);
+  let drawG = "";
+  await step(st.g!, "G1 crear raise con guard + presupuesto", async () => (await oc.createRaise(pG, kp(st!.g!.config))).sig);
+  await step(st.g!, "G2 lanzar pool + bind_pool", async () => (await oc.launchPool(G.config, kp(st!.g!.baseMint), undefined, true, { name: "Northwind Labs", symbol: "NWND", uri: "https://raw.githubusercontent.com/solana-developers/opos-asset/main/assets/DeveloperPortal/metadata.json" })).sig);
+  await step(st.g!, "G3 comprar hasta graduar", async () => (await oc.buyToComplete(G)).at(-1));
+  await step(st.g!, "G4 harvest + arm_guard", () => oc.harvest(G), async () => `tesorería ${sol((await G.fetch()).fundedAmount)} SOL`);
+  await step(st.g!, "G5 migrar a DAMM v2", async () => (await oc.migrate(G)).sig);
+  await step(st.g!, "G6 draw_budget", async () => {
+    const sig = await oc.drawBudget(G);
+    drawG = `presupuesto ${sol((await oc.budgetState(G))!.drawnTotal)} SOL, adelanto del tramo 1`;
+    return sig;
+  }, async () => drawG);
+  await step(st.g!, "G7 proponer tramo 1 (lo liquida el keeper)", async () =>
+    oc.propose(G, undefined, await evidence(`${EVIDENCE_BASE}/blob/main/docs/MILESTONES.md#m1`, MILESTONES[0])),
+  );
+  const finalG = await G.fetch();
+
   // ================================================================ resumen
   const link = (s?: string) => (s ? net.explorer(s) : "");
   const addr = (a: PublicKey) =>
@@ -390,6 +416,13 @@ async function main() {
       note: twapNote,
       steps: st.e!.steps.map((s) => ({ ...s, link: link(s.sig) })),
     },
+    raiseG: {
+      config: G.config.toBase58(),
+      treasury: G.treasury.toBase58(),
+      state: stateName(finalG.state),
+      note: drawG,
+      steps: st.g!.steps.map((s) => ({ ...s, link: link(s.sig) })),
+    },
     raiseF: {
       config: F.config.toBase58(),
       treasury: F.treasury.toBase58(),
@@ -442,6 +475,9 @@ async function main() {
     [/holder redime a precio de oferta/, "holder redeems at the buyout price"],
     [/el comprador redime sus tokens/, "acquirer redeems its own tokens"],
     [/el equipo no pide nada en (\d+) s/, "team stays silent for $1 s"],
+    [/crear raise con guard \+ presupuesto/, "init_raise + init_guard + init_budget + DBC create_config"],
+    [/proponer tramo 1 \(lo liquida el keeper\)/, "propose tranche 1 (the keeper settles it)"],
+    [/presupuesto (.*) SOL, adelanto del tramo 1/, "budget $1 SOL, advanced on tranche 1"],
     [/oferta/g, "offer"],
     [/depósito/g, "deposit"],
     [/cobró (.*): (.*)% sobre el TWAP/, "received $1: $2% above the TWAP"],
@@ -493,6 +529,12 @@ async function main() {
     ``,
     ...table(result.raiseF.steps),
     ``,
+    `## Raise G · operating budget, kept alive by the keeper`,
+    ``,
+    `Treasury [\`${G.treasury.toBase58()}\`](${addr(G.treasury)}) · the team draws a bounded budget every 10 min as an advance on its next tranche; tranche 1 was requested and the public keeper settles it, records the DAMM v2 price for the TWAP every run and would return the treasury if the team went silent for 7 days.`,
+    ``,
+    ...table(result.raiseG.steps),
+    ``,
   ].join("\n");
   fs.mkdirSync("docs", { recursive: true });
   fs.writeFileSync(`docs/DEMO-${net.cluster}.md`, md);
@@ -503,7 +545,8 @@ async function main() {
   const okD = ["funded", "completed"].includes(result.raiseD.state);
   const okE = result.raiseE.state === "liquidating";
   const okF = result.raiseF.state === "liquidating";
-  if (!okA || !okB || !okC || !okD || !okE || !okF)
+  const okG = ["funded", "completed"].includes(result.raiseG.state);
+  if (!okA || !okB || !okC || !okD || !okE || !okF || !okG)
     throw new Error(`Demo incompleta: A=${result.raiseA.state} B=${result.raiseB.state} C=${result.raiseC.released} D=${result.raiseD.state} E=${result.raiseE.state} F=${result.raiseF.state}`);
   console.log(`\n  DEMO OK: ciclo completo en ${net.cluster} (A completado con piso defendido, B en liquidación, C en tUSD, D en tNVDAx, E comprado con prima, F devuelto por abandono).`);
   console.log(`  Resumen para jueces: docs/DEMO-${net.cluster}.md`);

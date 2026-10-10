@@ -657,6 +657,115 @@
       ]
     },
     {
+      "name": "draw_budget",
+      "docs": [
+        "Team draws what has accrued this period, capped by what is still un-advanced on its",
+        "next tranche. Only while the raise is Funded."
+      ],
+      "discriminator": [
+        39,
+        38,
+        151,
+        34,
+        103,
+        165,
+        123,
+        68
+      ],
+      "accounts": [
+        {
+          "name": "team",
+          "signer": true
+        },
+        {
+          "name": "raise",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "budget",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  100,
+                  103,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  116,
+                  114,
+                  101,
+                  97,
+                  115,
+                  117,
+                  114,
+                  121
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "treasury_quote",
+          "writable": true
+        },
+        {
+          "name": "team_quote",
+          "writable": true
+        },
+        {
+          "name": "quote_mint"
+        },
+        {
+          "name": "quote_token_program"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "finalize",
       "docs": [
         "Permissionless after the window: releases the tranche, or flips the raise into",
@@ -740,6 +849,29 @@
         },
         {
           "name": "quote_token_program"
+        },
+        {
+          "name": "budget",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  100,
+                  103,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              }
+            ]
+          }
         }
       ],
       "args": []
@@ -842,6 +974,85 @@
         }
       ],
       "args": []
+    },
+    {
+      "name": "init_budget",
+      "discriminator": [
+        202,
+        164,
+        28,
+        162,
+        227,
+        172,
+        104,
+        54
+      ],
+      "accounts": [
+        {
+          "name": "team",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "raise",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  97,
+                  105,
+                  115,
+                  101
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise.dbc_config",
+                "account": "Raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "budget",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  117,
+                  100,
+                  103,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "raise"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "params",
+          "type": {
+            "defined": {
+              "name": "BudgetParams"
+            }
+          }
+        }
+      ]
     },
     {
       "name": "init_guard",
@@ -1602,6 +1813,19 @@
   ],
   "accounts": [
     {
+      "name": "Budget",
+      "discriminator": [
+        35,
+        151,
+        58,
+        65,
+        187,
+        148,
+        119,
+        218
+      ]
+    },
+    {
       "name": "Guard",
       "discriminator": [
         54,
@@ -1642,6 +1866,19 @@
     }
   ],
   "events": [
+    {
+      "name": "BudgetDrawn",
+      "discriminator": [
+        124,
+        65,
+        201,
+        230,
+        81,
+        253,
+        225,
+        120
+      ]
+    },
     {
       "name": "BuyoutExecuted",
       "discriminator": [
@@ -1868,9 +2105,110 @@
       "code": 6031,
       "name": "BuyoutAboveMax",
       "msg": "The buyout costs more than the maximum the acquirer allowed"
+    },
+    {
+      "code": 6032,
+      "name": "InvalidBudget",
+      "msg": "Invalid budget (amount > 0, period ≥ 60 s)"
+    },
+    {
+      "code": 6033,
+      "name": "NothingToDraw",
+      "msg": "Nothing to draw: this period's budget is used or the next tranche is fully advanced"
     }
   ],
   "types": [
+    {
+      "name": "Budget",
+      "docs": [
+        "Operating budget between milestones (MetaDAO-style monthly allowance, but bounded):",
+        "each period the team may draw `monthly_amount`, as an ADVANCE on its next tranche. The",
+        "next tranche pays the rest; draws stop when the raise is liquidated (rejection, silence",
+        "or takeover), and silence still triggers the ghost-team switch."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raise",
+            "type": "pubkey"
+          },
+          {
+            "name": "monthly_amount",
+            "type": "u64"
+          },
+          {
+            "name": "period_secs",
+            "type": "i64"
+          },
+          {
+            "name": "start_at",
+            "docs": [
+              "Start of the first period (first draw)."
+            ],
+            "type": "i64"
+          },
+          {
+            "name": "drawn_total",
+            "type": "u64"
+          },
+          {
+            "name": "advanced_unsettled",
+            "docs": [
+              "Advances not yet netted against a released tranche."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BudgetDrawn",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "raise",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "drawn_total",
+            "type": "u64"
+          },
+          {
+            "name": "advanced_on_next_tranche",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "BudgetParams",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "monthly_amount",
+            "docs": [
+              "Quote atoms the team may draw per period."
+            ],
+            "type": "u64"
+          },
+          {
+            "name": "period_secs",
+            "type": "i64"
+          }
+        ]
+      }
+    },
     {
       "name": "BuyoutExecuted",
       "type": {

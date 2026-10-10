@@ -18,6 +18,9 @@ Please include the instruction, the accounts involved and a reproduction (a fail
   the token at or below its treasury backing (`defend_floor` sets `minimum_amount_out` from the
   backing) and burns what it buys.
 - Holders always get a challenge window ≥ 60 s and a reject quorum ≤ 30% of circulating supply.
+- Budget draws are capped by the un-advanced part of the next tranche and netted in `finalize`
+  (which always receives the raise's Budget PDA), so the team can never receive more than
+  `funded − floor reserve` in total.
 - `observe` only accepts the DAMM v2 pool of the raise (owner, discriminator and both mints are
   checked). `tender_offer` needs ≥ 3 observations spanning half the TWAP window and a premium ≥ 10%.
 

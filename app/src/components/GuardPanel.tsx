@@ -8,15 +8,29 @@ import { useNow } from "../lib/useNow";
 export function GuardPanel({ d }: { d: RaiseDetail }) {
   const g = d.guard;
   const now = useNow(d.clockSkew);
-  if (!g) return null;
+  if (!g && !d.budget) return null;
+  const b = d.budget;
   const perM = (unitsPerAtom: number) => (unitsPerAtom * 10 ** BASE_DECIMALS * 1_000_000) / 10 ** d.quote.decimals;
   const fmt = (v: number) => (v >= 0.01 ? v.toFixed(4) : v.toPrecision(3));
   const sym = d.quote.symbol;
-  const left = g.abandonableAt ? g.abandonableAt - now : null;
+  const left = g?.abandonableAt ? g.abandonableAt - now : null;
   const pendingTranche = !!d.proposal;
   return (
     <div className="guard-panel" aria-label="Holder protections that run on their own">
       <h3>Protections that run on their own</h3>
+      {b && (
+        <div className="guard-row">
+          <span className="guard-name">Operating budget</span>
+          <p>
+            The team may draw {fmtAmt(b.monthly, d.quote)} {d.quote.symbol} every {fmtLeft(b.periodSecs)} between milestones, as an
+            advance on its next tranche (never more than that tranche). Drawn so far: {fmtAmt(b.drawnTotal, d.quote)}{" "}
+            {d.quote.symbol}
+            {b.advancedUnsettled.gtn(0) ? `, of which ${fmtAmt(b.advancedUnsettled, d.quote)} will be deducted from tranche ${b.nextTranche + 1}` : ""}.
+            It stops the moment holders reject a tranche or the team goes silent.
+          </p>
+        </div>
+      )}
+      {g && (<>
       <div className="guard-row">
         <span className="guard-name">Ghost-team switch</span>
         <p>
@@ -63,6 +77,7 @@ export function GuardPanel({ d }: { d: RaiseDetail }) {
           )}
         </p>
       </div>
+      </>)}
     </div>
   );
 }

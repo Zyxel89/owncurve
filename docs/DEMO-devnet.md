@@ -72,7 +72,7 @@ Currency [`CJxpbdZ6XrGv4umpkfAaJV183B4odUq22pqrrF83cEDp`](https://explorer.solan
 
 ## Raise E · Meteora Bedrock's takeover clause, enforced on-chain
 
-Treasury [`12US696pXxmuLWwv94sEKFiteeN7V133VS7XUDKek7vB`](https://explorer.solana.com/address/12US696pXxmuLWwv94sEKFiteeN7V133VS7XUDKek7vB?cluster=devnet) · the program built its own TWAP from DAMM v2 price observations; a takeover had to top the treasury up so every holder redeems at TWAP +30%. TWAP 0.000625 → offer 0.000812 SOL per 1M tokens (+30%), deposit 0.6125 SOL · final state **liquidating**, new team AGxjAi….
+Treasury [`12US696pXxmuLWwv94sEKFiteeN7V133VS7XUDKek7vB`](https://explorer.solana.com/address/12US696pXxmuLWwv94sEKFiteeN7V133VS7XUDKek7vB?cluster=devnet) · the program built its own TWAP from DAMM v2 price observations; a takeover had to top the treasury up so every holder redeems at TWAP +30%.  · final state **liquidating**, new team AGxjAi….
 
 | Step | Result | Transaction |
 | --- | --- | --- |
@@ -102,3 +102,17 @@ Treasury [`ELQqDD2h2P5mKuz4JjWNW4BmFKuiFUU1iJ3KJXt32ABZ`](https://explorer.solan
 | F3 buy until the curve graduates |  | [view](https://explorer.solana.com/tx/2etvgdTwfm7DqoxkLSbRrzsKEeQkL9oTMMcmYMBLz26f5BR8kC5aAW8GbSsGiRT12dUf2bY3zpA1fs3ESf4aYfNg?cluster=devnet) |
 | F4 harvest + arm_guard (inactivity clock starts) | treasury 0.0800 SOL | [view](https://explorer.solana.com/tx/2tUYicHYYeXf3dAx2eaFwsKjSedseikRGjLQKwdABUSzaWe2Ur9RT4effbjJEw8MQ82vD14ip1EysrewpXyA8fTg?cluster=devnet) |
 | F6 declare_abandoned | state "liquidating" | [view](https://explorer.solana.com/tx/3VDYMcqqCz8id1imVSesNatF8mfY4rtXJ1h72Tkhkd914oQsKskp9Af6WhCRvrUG9pSxSoZPERxDdr5Rw2nHA95u?cluster=devnet) |
+
+## Raise G · operating budget, kept alive by the keeper
+
+Treasury [`F7aNPaZdhARzpFF1g4BjmzCvVfsqGfBUtLdQxkgicKMt`](https://explorer.solana.com/address/F7aNPaZdhARzpFF1g4BjmzCvVfsqGfBUtLdQxkgicKMt?cluster=devnet) · the team draws a bounded budget every 10 min as an advance on its next tranche; tranche 1 was requested and the public keeper settles it, records the DAMM v2 price for the TWAP every run and would return the treasury if the team went silent for 7 days.
+
+| Step | Result | Transaction |
+| --- | --- | --- |
+| G1 init_raise + init_guard + DBC create_config + presupuesto |  | [view](https://explorer.solana.com/tx/CQMDbHAAgY1YSo1158RqcD5u9f2URRJYXYa8xAS2j1VD2iz2uwkBuvN5yTU2Jwy8BYzAq3EiBfQbVnjYTbBgFPW?cluster=devnet) |
+| G2 DBC create_pool + bind_pool (on-chain checks) |  | [view](https://explorer.solana.com/tx/2Ub9wipZdn6Kk5XDCr61EP92DU28mTZe25rXaNNJ27mQ11sT7gj9R42e971B9SvugrkczfABXHKXF7c36ijQWjrH?cluster=devnet) |
+| G3 buy until the curve graduates |  | [view](https://explorer.solana.com/tx/4gWFRucgFJoY633ukCLvHnrtrQnjdSmbQom7y5VdvLQMZxuBECVDmWi8esnSdCazzgm7nLdkAbQSYXWau7uiU8rj?cluster=devnet) |
+| G4 harvest + arm_guard (inactivity clock starts) | treasury 0.1600 SOL | [view](https://explorer.solana.com/tx/357bh1TJU7KAdujQeTsiPVCBgyJoAqLwCT96RLHntftgFaZMRTveJd2iNg3t3ARryD78taJ1K5KqKGwQhbyKHCwV?cluster=devnet) |
+| G5 migrate to DAMM v2 |  | [view](https://explorer.solana.com/tx/3eQeoAa4tbJcpJM4j9xH96XR8ccCjw51gu3imJW2N7seghv361zDr2MuiEprVo3sH6K8DGbbz3y7JYzTzpnVEJVa?cluster=devnet) |
+| G6 draw_budget | budget 0.0050 SOL, advanced on tranche 1 | [view](https://explorer.solana.com/tx/3Da96xLaQ7CzXRJEmGjSPSyJZSB3eiGdgFYSGJ9rUJNRApDX9SaP2MrK9YXsAA1ekTzpbzPgCRSchEgqztpSVvb?cluster=devnet) |
+| G7 propose tranche 1 with evidence (lo liquida el keeper) |  | [view](https://explorer.solana.com/tx/3aGxrMDt1nMhkUnxiYZ4rB1d3Y3658Na4mipoZTxddDNXtaczwriWPY7WvW7pxMuWL7kJ4rUdR1kiCNub5j5Ly8X?cluster=devnet) |

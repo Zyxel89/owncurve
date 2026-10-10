@@ -58,6 +58,8 @@ export type RaiseParams = {
   floorReserveBps: number; // parte de lo recaudado que nunca se paga: respalda el piso de precio
   /** Protecciones automáticas (cuenta Guard): equipo fantasma y cláusula Bedrock en cadena. */
   guard?: GuardParams | null;
+  /** Presupuesto entre hitos: `amount` (en la moneda del raise) cada `periodSecs`, adelanto del siguiente tramo. */
+  budget?: { amount: number; periodSecs: number } | null;
   // Solo para tests de seguridad: configs DBC "maliciosas".
   feeClaimer?: PublicKey;
   creatorMigrationFeePct?: number;
@@ -184,6 +186,9 @@ export class Raise {
   }
   get guard() {
     return PublicKey.findProgramAddressSync([Buffer.from("guard"), this.raise.toBuffer()], this.pid)[0];
+  }
+  get budget() {
+    return PublicKey.findProgramAddressSync([Buffer.from("budget"), this.raise.toBuffer()], this.pid)[0];
   }
   get escrow() {
     return PublicKey.findProgramAddressSync([Buffer.from("escrow"), this.raise.toBuffer()], this.pid)[0];
@@ -312,6 +317,18 @@ export class OwnCurve {
             .instruction(),
         ]
       : [];
+    if (params.budget && params.budget.amount > 0) {
+      const dec = params.quote?.decimals ?? 9;
+      guardIxs.push(
+        await this.m
+          .initBudget({
+            monthlyAmount: new BN(Math.round(params.budget.amount * 10 ** dec).toString()),
+            periodSecs: new BN(params.budget.periodSecs),
+          })
+          .accountsStrict({ team: team.publicKey, raise: r.raise, budget: r.budget, systemProgram: SystemProgram.programId })
+          .instruction(),
+      );
+    }
     const sig = await this.net.send("init_raise + create_config", [initRaise, ...createConfig.instructions, ...guardIxs], [
       configKp,
       team,
@@ -500,6 +517,64 @@ export class OwnCurve {
     } catch {
       return 0;
     }
+  }
+
+  /** Presupuesto: lo disponible ahora, como lo calcula `draw_budget`. */
+  async budgetState(r: Raise) {
+    const b: any = await (this.program.account as any).budget.fetchNullable(r.budget);
+    if (!b) return null;
+    const raise = await r.fetch();
+    const now = Math.floor(Date.now() / 1000) + (await this.clockSkew());
+    const start = Number(b.startAt);
+    const period = Number(b.periodSecs);
+    const periods = start === 0 ? 1 : Math.floor((now - start) / period) + 1;
+    const monthly = new BN(b.monthlyAmount.toString());
+    const drawn = new BN(b.drawnTotal.toString());
+    const advanced = new BN(b.advancedUnsettled.toString());
+    const count = Number(raise.milestoneCount);
+    const next = (raise.milestones as any[]).slice(0, count).findIndex((m) => stateName(m.status) !== "released");
+    const funded = new BN(raise.fundedAmount.toString());
+    const payable = funded.sub(funded.muln(raise.floorReserveBps).divn(10_000));
+    const nextAmount =
+      next < 0 ? new BN(0) : next === count - 1 ? payable.sub(new BN(raise.releasedAmount.toString())) : payable.muln(raise.milestones[next].trancheBps).divn(10_000);
+    let available = monthly.muln(periods).sub(drawn);
+    const room = nextAmount.sub(advanced);
+    if (room.lt(available)) available = room;
+    if (available.isNeg()) available = new BN(0);
+    return {
+      monthly,
+      periodSecs: period,
+      drawnTotal: drawn,
+      advancedUnsettled: advanced,
+      nextTranche: next,
+      nextTrancheAmount: nextAmount,
+      available,
+      nextPeriodAt: start === 0 ? now : start + periods * period,
+      now,
+    };
+  }
+
+  async drawBudget(r: Raise, team = this.net.payer) {
+    const raise = await r.fetch();
+    const teamQuote = r.quoteAta(raise.team);
+    const ix = await this.m
+      .drawBudget()
+      .accountsStrict({
+        team: team.publicKey,
+        raise: r.raise,
+        budget: r.budget,
+        treasury: r.treasury,
+        treasuryQuote: r.treasuryQuote,
+        teamQuote,
+        quoteMint: r.quoteMint,
+        quoteTokenProgram: r.quoteProgram,
+      })
+      .instruction();
+    return this.net.send(
+      "draw_budget",
+      [createAssociatedTokenAccountIdempotentInstruction(this.payer, teamQuote, raise.team, r.quoteMint, r.quoteProgram), ix],
+      [team],
+    );
   }
 
   async armGuard(r: Raise) {
@@ -840,6 +915,7 @@ export class OwnCurve {
         quoteMint: r.quoteMint,
         baseMint: r.baseMint,
         quoteTokenProgram: r.quoteProgram,
+        budget: r.budget,
       })
       .instruction();
     return this.net.send(

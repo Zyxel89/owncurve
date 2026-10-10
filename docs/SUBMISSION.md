@@ -10,6 +10,8 @@ Links (fill in automatically by `owncurve.sh`):
 - Demo raise D (raised in a tokenized stock, tNVDAx, floor defended): https://zyxel89.github.io/owncurve/#/raise/FDtBpfVYe1NJKNWWiuieJueFPKfmDY6XJhJyRxjc1aQe
 - Demo raise E (taken over through the on-chain Bedrock clause): https://zyxel89.github.io/owncurve/#/raise/8toF88iSKFRstDfZzsRNkHz2GBet84K5ztgBEkXyFXNN
 - Demo raise F (silent team → treasury back to holders): https://zyxel89.github.io/owncurve/#/raise/DVW29fmVR36A65xViVbuJNTzMMAvJro8vm4tpvX7MimF
+- Demo raise G (operating budget, kept alive by the keeper): https://zyxel89.github.io/owncurve/#/raise/68WZeVdNN4vNujsArou2es2P59V6VtuYPKipAmnSu4Y
+- Keeper activity (runs every 10 min, no humans): https://zyxel89.github.io/owncurve/#/keeper
 - Rug check any Meteora launch: https://zyxel89.github.io/owncurve/#/scan
 - Mainnet study: https://github.com/Zyxel89/owncurve/blob/main/docs/MAINNET-STUDY.md
 - Program (devnet): https://explorer.solana.com/address/GBHTxatkmbAX5U7G65yXzDVAZjjjyW9btGZ1DNUHtcfh?cluster=devnet
@@ -43,7 +45,9 @@ Raises can be quoted in SOL, any SPL token (USDC) or any Token-2022 token (xStoc
 server and an Agent Skill let AI agents launch, audit and govern raises, simulating every write
 unless confirmed. Meteora Bedrock's takeover clause runs as code: the program keeps its own TWAP from
 DAMM v2 and the only way to take a raise over is a tender offer that pays every holder TWAP +30%.
-If the team goes silent, anyone can return the treasury to holders. A rug check grades any mainnet
+If the team goes silent, anyone can return the treasury to holders. Teams can draw a bounded
+operating budget that is only ever an advance on their next tranche. A public keeper runs every
+protection every 10 minutes, so nothing depends on someone clicking a button. A rug check grades any mainnet
 DBC launch, and a mainnet study of every DBC config and launch measures the gap OwnCurve closes.
 
 ## How it uses Meteora
@@ -59,11 +63,11 @@ DBC launch, and a mainnet study of every DBC config and launch measures the gap 
 
 ## Proof
 
-- Its own Anchor program (17 instructions) doing CPI into DBC and DAMM v2, not an SDK wrapper.
-- 29 integration tests against the real DBC and DAMM v2 binaries (LiteSVM), including full
+- Its own Anchor program (19 instructions) doing CPI into DBC and DAMM v2, not an SDK wrapper.
+- 31 integration tests against the real DBC and DAMM v2 binaries (LiteSVM), including full
   lifecycles in an SPL stablecoin and a Token-2022 tokenized stock; CLI, MCP and mainnet-study tests;
   a browser E2E test that drives the whole lifecycle in Chromium.
-- Six raises on devnet (tranches + floor, rejection, stablecoin, tokenized stock, Bedrock takeover, ghost team) with every transaction linked: `docs/DEMO-devnet.md`.
+- Seven raises on devnet (tranches + floor, rejection, stablecoin, tokenized stock, Bedrock takeover, ghost team, budget + keeper) and a keeper acting on devnet every 10 minutes with every transaction linked: `docs/DEMO-devnet.md`.
 - security.txt embedded in the program, IDL on-chain, `scripts/verify.sh` matches the devnet binary to the source.
 
 ## Judging criteria → where to look
@@ -74,7 +78,7 @@ DBC launch, and a mainnet study of every DBC config and launch measures the gap 
 | Technical execution | Anchor program + 25 integration tests on real Meteora binaries, E2E, CLI/MCP tests, verify script |
 | Originality and taste | Milestone escrow with on-chain evidence, holder objections → redemptions, self-defending price floor, Meteora Bedrock's takeover clause as code, ghost-team switch |
 | Impact potential | Any DBC launchpad can add "ownership coin" mode; works for stablecoin and RWA (xStock) raises; agents can be holder guardians |
-| Traction | Live app, six devnet raises, rug check that works on any mainnet DBC launch, mainnet study of every DBC launch |
+| Traction | Live app, seven devnet raises, an autonomous keeper transacting every 10 min, rug check that works on any mainnet DBC launch, mainnet study of every DBC launch |
 
 ## Pitch video (max 3 min) — the "why"
 
