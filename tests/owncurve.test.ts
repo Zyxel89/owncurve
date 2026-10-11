@@ -55,7 +55,7 @@ async function circulating(oc: OwnCurve, r: Raise) {
 }
 
 // ------------------------------------------------------------------ flujo feliz
-test("2.4 flujo feliz: la tesorería se financia y los 3 tramos se liberan al equipo (menos la reserva del piso)", async () => {
+test("2.4 happy path: the treasury is funded and all 3 tranches are released to the team (minus the floor reserve)", async () => {
   const { oc, net, r, p } = await fundedRaise();
   const fundedAll = n((await raiseOf(r)).fundedAmount);
   assert.ok(fundedAll.eq(new BN(p.threshold * LAMPORTS_PER_SOL).muln(p.treasuryPct).divn(100)), "80% del umbral");
@@ -82,7 +82,7 @@ test("2.4 flujo feliz: la tesorería se financia y los 3 tramos se liberan al eq
 });
 
 // ------------------------------------------------------------------ hitos con evidencia
-test("2.7 cada tramo se pide con evidencia: el enlace y su hash quedan en cadena", async () => {
+test("2.7 every tranche request carries evidence: the link and its hash are stored on-chain", async () => {
   const { oc, r } = await fundedRaise();
   const ev = await evidence("https://github.com/acme/app/releases/tag/v0.1", "commit 4f2a9c1: beta shipped");
   await oc.propose(r, undefined, ev);
@@ -91,7 +91,7 @@ test("2.7 cada tramo se pide con evidencia: el enlace y su hash quedan en cadena
   assert.deepEqual(Array.from(raise.milestones[0].evidenceHash), await sha256("commit 4f2a9c1: beta shipped"));
 });
 
-test("2.7 propose_release sin evidencia falla", async () => {
+test("2.7 propose_release without evidence fails", async () => {
   const { oc, r } = await fundedRaise();
   await expectError(oc.propose(r, undefined, { uri: "  ", hash: new Array(32).fill(0) }), "InvalidEvidence");
   await expectError(oc.propose(r, undefined, { uri: "https://x.io/" + "a".repeat(200), hash: new Array(32).fill(0) }), "InvalidEvidence");
@@ -107,7 +107,7 @@ async function crashedRaise() {
   return s;
 }
 
-test("2.8 defend_floor: con el precio por debajo del respaldo, la tesorería recompra y quema", async () => {
+test("2.8 defend_floor: with the price below backing, the treasury buys back and burns", async () => {
   const { oc, r } = await crashedRaise();
   const st = await oc.dammState(r);
   const before = await oc.backing(r);
@@ -125,7 +125,7 @@ test("2.8 defend_floor: con el precio por debajo del respaldo, la tesorería rec
   assert.ok((await oc.dammState(r))!.price > st!.price, "el precio de mercado sube");
 });
 
-test("2.8 defend_floor no recompra por encima del respaldo", async () => {
+test("2.8 defend_floor does not buy above backing", async () => {
   const { oc, r } = await fundedRaise();
   await oc.migrate(r);
   const st = await oc.dammState(r);
@@ -138,18 +138,18 @@ test("2.8 defend_floor no recompra por encima del respaldo", async () => {
   }
 });
 
-test("2.8 defend_floor no puede gastar más que su presupuesto (reserva + comisiones)", async () => {
+test("2.8 defend_floor cannot spend more than its budget (reserve + fees)", async () => {
   const { oc, r } = await crashedRaise();
   const budget = await oc.floorBudget(r);
   await expectError(oc.defendFloor(r, budget.addn(1)), "FloorBudgetExceeded");
 });
 
-test("2.8 init_raise limita la reserva del piso a ≤ 50%", async () => {
+test("2.8 init_raise caps the floor reserve at ≤ 50%", async () => {
   const s = await setup({ floorReserveBps: 5001 });
   await expectError(s.oc.createRaise(s.p), "InvalidGovernance");
 });
 
-test("2.1 comisiones de trading de la curva van a la tesorería", async () => {
+test("2.1 curve trading fees go to the treasury", async () => {
   const { oc, r } = await fundedRaise();
   const before = await oc.tokenBalance(r.treasuryQuote);
   await oc.collectTradingFees(r);
@@ -159,7 +159,7 @@ test("2.1 comisiones de trading de la curva van a la tesorería", async () => {
   assert.ok(n(raise.feesCollected).eq(delta), "fees_collected registra lo cobrado");
 });
 
-test("2.1 excedente: la curva no deja pasarse del umbral; collect_surplus cobra lo que haya, una sola vez", async () => {
+test("2.1 surplus: the curve cannot overshoot its threshold; collect_surplus collects whatever there is, once", async () => {
   const { oc, r } = await bondingRaise();
   const c0 = await oc.curve(r);
   await oc.buy(r, c0.threshold.muln(9).divn(10)); // ~90% de la curva
@@ -179,7 +179,7 @@ test("2.1 excedente: la curva no deja pasarse del umbral; collect_surplus cobra 
   await expectError(oc.collectSurplus(r), "SurplusHasBeenWithdraw");
 });
 
-test("2.1 tras migrar a DAMM v2, la tesorería cobra las comisiones de su posición de LP", async () => {
+test("2.1 after migrating to DAMM v2, the treasury collects its LP position fees", async () => {
   const { oc, r } = await fundedRaise();
   const { nftMints } = await oc.migrate(r);
   const pos = await oc.treasuryPosition(r, nftMints);
@@ -192,7 +192,7 @@ test("2.1 tras migrar a DAMM v2, la tesorería cobra las comisiones de su posici
 });
 
 // ------------------------------------------------------------------ rechazo y liquidación
-test("2.5 rechazo con quórum → liquidación → redención proporcional al NAV", async () => {
+test("2.5 objection with quorum → liquidation → pro-rata redemption at NAV", async () => {
   const { oc, net, r, p } = await fundedRaise();
   const voter = Keypair.generate();
   await net.fund(voter.publicKey, LAMPORTS_PER_SOL);
@@ -221,7 +221,7 @@ test("2.5 rechazo con quórum → liquidación → redención proporcional al NA
   assert.ok((await oc.mintSupply(r.baseMint)).eq(supplyBefore.sub(stake)), "los tokens se queman");
 });
 
-test("2.5 un rechazo por debajo del quórum no bloquea el tramo", async () => {
+test("2.5 an objection below quorum does not block the tranche", async () => {
   const { oc, net, r, p } = await fundedRaise();
   const voter = Keypair.generate();
   await net.fund(voter.publicKey, LAMPORTS_PER_SOL);
@@ -237,32 +237,32 @@ test("2.5 un rechazo por debajo del quórum no bloquea el tramo", async () => {
 });
 
 // ------------------------------------------------------------------ seguridad
-test("2.6 bind_pool rechaza una config DBC cuyo fee_claimer no es la tesorería", async () => {
+test("2.6 bind_pool rejects a DBC config whose fee_claimer is not the treasury", async () => {
   const s = await setup();
   const { configKp } = await s.oc.createRaise({ ...s.p, feeClaimer: s.net.payer.publicKey });
   await expectError(s.oc.launchPool(configKp.publicKey), "FeeClaimerNotTreasury");
 });
 
-test("2.6 bind_pool rechaza una config que comparte el migration fee con el creador", async () => {
+test("2.6 bind_pool rejects a config that shares the migration fee with the creator", async () => {
   const s = await setup();
   const { configKp } = await s.oc.createRaise({ ...s.p, creatorMigrationFeePct: 10 });
   await expectError(s.oc.launchPool(configKp.publicKey), "CreatorMigrationFeeNotZero");
 });
 
-test("2.6 bind_pool rechaza una config que deja LP desbloqueado al creador (rug de liquidez)", async () => {
+test("2.6 bind_pool rejects a config that leaves unlocked LP to the creator (liquidity rug)", async () => {
   const s = await setup();
   const { configKp } = await s.oc.createRaise({ ...s.p, creatorUnlockedLpPct: 20 });
   await expectError(s.oc.launchPool(configKp.publicKey), "CreatorLpNotLocked");
 });
 
-test("2.6 init_raise impone límites de gobernanza: ventana ≥ 60 s, quórum ≤ 30%, tesorería ≥ 50%", async () => {
+test("2.6 init_raise enforces governance limits: window ≥ 60 s, quorum ≤ 30%, treasury ≥ 50%", async () => {
   const s = await setup();
   await expectError(s.oc.createRaise({ ...s.p, challengeSecs: 5 }), "InvalidGovernance");
   await expectError(s.oc.createRaise({ ...s.p, quorumBps: 5000 }), "InvalidGovernance");
   await expectError(s.oc.createRaise({ ...s.p, treasuryPct: 40 }), "InvalidGovernance");
 });
 
-test("2.6 nadie fuera del programa puede retirar el migration fee de DBC", async () => {
+test("2.6 nobody outside the program can withdraw the DBC migration fee", async () => {
   const { oc, net, r } = await bondingRaise();
   await oc.buyToComplete(r);
   const attacker = Keypair.generate();
@@ -273,24 +273,24 @@ test("2.6 nadie fuera del programa puede retirar el migration fee de DBC", async
   assert.equal(stateName((await raiseOf(r)).state), "funded");
 });
 
-test("2.6 harvest no se puede ejecutar dos veces", async () => {
+test("2.6 harvest cannot run twice", async () => {
   const { oc, r } = await fundedRaise();
   await expectError(oc.harvest(r), "InvalidState");
 });
 
-test("2.6 harvest antes de completar la curva falla en DBC", async () => {
+test("2.6 harvest before the curve completes fails in DBC", async () => {
   const { oc, r } = await bondingRaise();
   await expectError(oc.harvest(r), "NotPermitToDoThisAction");
 });
 
-test("2.6 solo el equipo puede proponer un tramo", async () => {
+test("2.6 only the team can request a tranche", async () => {
   const { oc, net, r } = await fundedRaise();
   const attacker = Keypair.generate();
   await net.fund(attacker.publicKey, LAMPORTS_PER_SOL);
   await expectError(oc.propose(r, attacker), "NotTeam");
 });
 
-test("2.6 ventanas: no se finaliza antes de tiempo ni se vota fuera de plazo", async () => {
+test("2.6 windows: no early settlement and no votes after the deadline", async () => {
   const { oc, net, r, p } = await fundedRaise();
   await oc.propose(r);
   await expectError(oc.finalize(r), "ChallengeWindowOpen");
@@ -298,12 +298,12 @@ test("2.6 ventanas: no se finaliza antes de tiempo ni se vota fuera de plazo", a
   await expectError(oc.reject(r, net.payer, new BN(1_000_000)), "ChallengeWindowClosed");
 });
 
-test("2.6 no se puede redimir si el raise no está en liquidación", async () => {
+test("2.6 redeeming fails unless the raise is liquidating", async () => {
   const { oc, net, r } = await fundedRaise();
   await expectError(oc.redeem(r, net.payer, new BN(1_000_000)), "InvalidState");
 });
 
-test("2.6 init_raise rechaza tramos que no suman 100%", async () => {
+test("2.6 init_raise rejects tranches that do not add up to 100%", async () => {
   const s = await setup();
   await expectError(s.oc.createRaise({ ...s.p, tranchesBps: [5000, 4000] }), "InvalidMilestones");
 });
@@ -312,7 +312,7 @@ test("2.6 init_raise rechaza tramos que no suman 100%", async () => {
 import { TEST_QUOTES, createTestQuote, mintTestQuoteIxs } from "../scripts/lib/quotes";
 
 for (const spec of TEST_QUOTES) {
-  test(`2.9 raise en ${spec.symbol} (${spec.token2022 ? "Token-2022, como las xStocks" : "SPL, como USDC"}): tramos, piso y redención`, async () => {
+  test(`2.9 raise in ${spec.symbol} (${spec.token2022 ? "Token-2022, like xStocks" : "SPL, like USDC"}): tranches, floor and redemption`, async () => {
     const net = await makeNet();
     const oc = new OwnCurve(net, loadIdl());
     const quote = await createTestQuote(net, spec, Keypair.generate(), net.payer.publicKey);
@@ -367,7 +367,7 @@ for (const spec of TEST_QUOTES) {
 }
 
 // ------------------------------------------------------------------ guard: equipo fantasma y Bedrock en cadena
-test("2.10 equipo fantasma: sin pedir tramos durante `inactivity`, cualquiera devuelve la tesorería a los holders", async () => {
+test("2.10 ghost team: with no tranche request for `inactivity`, anyone returns the treasury to holders", async () => {
   const { oc, net, r, p } = await fundedRaise();
   const g = await oc.guardState(r);
   assert.ok(g && g.armedAt > 0, "harvest arma el guard en la misma transacción");
@@ -391,7 +391,7 @@ test("2.10 equipo fantasma: sin pedir tramos durante `inactivity`, cualquiera de
   assert.ok((await oc.tokenBalance(r.quoteAta(voter.publicKey))).gtn(0));
 });
 
-test("2.10 init_guard valida sus parámetros y solo antes de financiar", async () => {
+test("2.10 init_guard validates its parameters and only works before funding", async () => {
   const s = await setup({ guard: { inactivitySecs: 10, buyoutPremiumBps: 3000, twapWindowSecs: 120 } });
   await expectError(s.oc.createRaise(s.p), "InvalidGuard");
   const s2 = await setup({ guard: { inactivitySecs: 300, buyoutPremiumBps: 500, twapWindowSecs: 120 } });
@@ -410,7 +410,7 @@ async function observedRaise(n = 4) {
   return s;
 }
 
-test("2.11 Bedrock en cadena: TWAP propio desde DAMM v2 y oferta pública con prima a todos los holders", async () => {
+test("2.11 Bedrock on-chain: own TWAP from DAMM v2 and a tender offer with a premium to every holder", async () => {
   const { oc, net, r } = await observedRaise(2);
   await expectError(oc.observe(r), "ObservationTooSoon");
   await expectError(oc.tenderOffer(r, new BN(10 * LAMPORTS_PER_SOL)), "TwapNotReady");
@@ -443,7 +443,7 @@ test("2.11 Bedrock en cadena: TWAP propio desde DAMM v2 y oferta pública con pr
   assert.ok(got >= floor * 0.999, `cobró ${got} ≥ TWAP×1,3 ${floor}`);
 });
 
-test("2.11 observe rechaza un pool que no es el DAMM v2 del raise", async () => {
+test("2.11 observe rejects a pool that is not the raise's DAMM v2 pool", async () => {
   const { oc, r } = await fundedRaise();
   await oc.migrate(r);
   const ix = await oc.m.observe().accountsStrict({ raise: r.raise, guard: r.guard, dammPool: r.pool }).instruction();
@@ -451,7 +451,7 @@ test("2.11 observe rechaza un pool que no es el DAMM v2 del raise", async () => 
 });
 
 // ------------------------------------------------------------------ presupuesto entre hitos
-test("2.12 presupuesto mensual: adelantos acotados que se descuentan del siguiente tramo; nunca se paga de más", async () => {
+test("2.12 monthly budget: capped advances netted from the next tranche; never overpays", async () => {
   const { oc, net, r, p } = await fundedRaise({ budget: { amount: 0.02, periodSecs: 60 } });
   const teamQuote = r.quoteAta(net.payer.publicKey);
   const bal = () => oc.tokenBalance(teamQuote);
@@ -491,7 +491,7 @@ test("2.12 presupuesto mensual: adelantos acotados que se descuentan del siguien
   assert.ok((await bal()).eq(payable) && n(raise.releasedAmount).eq(payable), "total cobrado = lo cobrable, ni un lamport más");
 });
 
-test("2.12 el presupuesto se corta si los holders rechazan un tramo", async () => {
+test("2.12 the budget stops if holders reject a tranche", async () => {
   const { oc, net, r, p } = await fundedRaise({ budget: { amount: 0.01, periodSecs: 60 } });
   await oc.drawBudget(r);
   const voter = Keypair.generate();

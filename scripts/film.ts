@@ -6,15 +6,23 @@
 //
 // Optional: PRESENTER="Name · Country"  MAINNET_ADDR=<a mainnet DBC config/pool/token>  FPS=30
 // Writes OUT (H.264 1920x1080) and OUT with .srt (the same subtitles, for YouTube captions).
-import { chromium, Browser, Locator, Page } from "playwright-core";
-import { spawn } from "child_process";
+import { chromium, Browser, BrowserContext, Locator, Page } from "playwright-core";
+import { Connection } from "@solana/web3.js";
+import { scanLaunch } from "./lib/scan";
+import { spawn, spawnSync } from "child_process";
 import fs from "fs";
 
 const SITE = (process.env.SITE ?? "https://zyxel89.github.io/owncurve/").replace(/#.*$/, "");
-const OUT = process.env.OUT ?? `${process.env.HOME}/videos/owncurve-pitch.mp4`;
+const MODE = (process.env.MODE ?? "pitch") as "pitch" | "demo";
+const OUT = process.env.OUT ?? `${process.env.HOME}/videos/owncurve-${MODE}.mp4`;
 const FPS = Number(process.env.FPS ?? 30);
 const PRESENTER = process.env.PRESENTER ?? "";
-const MAINNET_ADDR = process.env.MAINNET_ADDR ?? "FbKf76ucsQssF7XZBuzScdJfugtsSKwZFYztKsMEhWZM";
+const MAINNET_ADDR_ENV = process.env.MAINNET_ADDR ?? "";
+let MAINNET_ADDR = MAINNET_ADDR_ENV || "FbKf76ucsQssF7XZBuzScdJfugtsSKwZFYztKsMEhWZM";
+// Optional private RPCs: the page keeps calling the public endpoints it was built with, and the recorder
+// forwards those calls here (never shown on screen). Avoids public-RPC rate limits while filming.
+const DEVNET_RPC = process.env.DEVNET_RPC ?? "";
+const MAINNET_RPC = process.env.MAINNET_RPC ?? "";
 const VW = 1600;
 const VH = 900; // ×1.2 = 1920x1080
 
@@ -43,6 +51,22 @@ const OVERLAY = `
     #oc-card h2 { font-size: 38px; margin: 0 0 30px; font-weight: 500; color: #cfe3da; }
     #oc-card p { font-size: 26px; margin: 8px 0; color: #a9c2b8; }
     #oc-card .big { font-size: 46px; color: #eef4f1; font-weight: 700; margin: 0 0 24px; }
+    #oc-card .term { width: 1280px; text-align: left; background: #0b0f0e; border: 1px solid #2c4a40; border-radius: 14px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.45); overflow: hidden; margin-bottom: 150px; }
+    #oc-card .term .bar { padding: 10px 16px; background: #15201c; color: #8fb3a5; font: 500 17px/1.2 ui-monospace, "DejaVu Sans Mono", monospace; }
+    #oc-card .term pre { margin: 0; padding: 18px 22px; height: 520px; overflow: hidden; color: #d8e6df;
+      font: 17px/1.5 ui-monospace, "DejaVu Sans Mono", Menlo, monospace; white-space: pre-wrap; word-break: break-all; }
+    #oc-card .term .p { color: #7fd6b0; } #oc-card .term .ok { color: #8be0a4; } #oc-card .term .bad { color: #ff8f8f; }
+    #oc-card .term .c { color: #6f8f83; } #oc-card .term .k { color: #f0c674; } #oc-card .term .hl { background: rgba(127,214,176,.14); display: inline-block; width: 100%; }
+    #oc-card .arch { display: grid; grid-template-columns: 260px 520px 380px; gap: 34px; align-items: center; text-align: left; }
+    #oc-card .col { display: grid; gap: 16px; }
+    #oc-card .box { border: 1px solid #3f6b5c; border-radius: 12px; padding: 14px 18px; background: rgba(255,255,255,.03); font-size: 19px; line-height: 1.4; color: #cfe3da; transition: none; }
+    #oc-card .box b { display: block; font-size: 22px; color: #eef4f1; margin-bottom: 4px; }
+    #oc-card .box code { font: 16px ui-monospace, "DejaVu Sans Mono", monospace; color: #9fd8bf; }
+    #oc-card .box.on { border-color: #7fd6b0; background: rgba(127,214,176,.13); box-shadow: 0 0 0 2px rgba(127,214,176,.35); }
+    #oc-card .core { padding: 22px; } #oc-card .core .sub { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+    #oc-card .core .sub span { border: 1px dashed #3f6b5c; border-radius: 8px; padding: 8px 10px; font-size: 16px; }
+    #oc-card .arrow { color: #7fd6b0; font-size: 34px; text-align: center; }
     #oc-card .tag { display: inline-block; margin-top: 26px; padding: 8px 18px; border: 1px solid #3f6b5c; border-radius: 999px; font-size: 22px; color: #9fd8bf; }
   \`;
   const ensure = () => {
@@ -223,9 +247,15 @@ async function route(page: Page, hash: string) {
 /** Open a featured raise from the home page; returns false if it is not there. */
 async function openFeatured(f: Film, label: string, onCamera = true) {
   const page = f.page;
-  if (!(await page.locator("a.feature").first().isVisible().catch(() => false))) {
-    await route(page, "#/");
-    if (!(await visible(page.locator("a.feature")))) return false;
+  for (let attempt = 0; !(await page.locator("a.feature").first().isVisible().catch(() => false)); attempt++) {
+    if (attempt >= 3) return false;
+    if (attempt === 0) await route(page, "#/");
+    else {
+      log(`  … raises not loaded, reloading (${attempt})`);
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await page.evaluate(() => (window as any).__oc.fade(1));
+    }
+    if (await visible(page.locator("a.feature"), 40_000)) break;
   }
   const card = page.locator("a.feature", { hasText: label }).first();
   if (!(await card.count())) return false;
@@ -497,6 +527,310 @@ async function pitch(f: Film) {
   await f.fade(1, 0.5);
 }
 
+
+// ───────────────────────────── the technical demo ─────────────────────────────
+const esc = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+type Facts = { tests: string[]; mcp: string[]; program: string[]; programId: string };
+
+/** Lines of `pub fn name` in lib.rs with its doc comment, trimmed to `max` lines. */
+function rustFn(name: string, max = 24, skip = 0) {
+  const src = fs.readFileSync("programs/owncurve/src/lib.rs", "utf8").split("\n");
+  let i = src.findIndex((l) => l.includes(`pub fn ${name}(`));
+  if (i < 0) return [];
+  let start = i;
+  while (start > 0 && src[start - 1].trim().startsWith("///")) start--;
+  const body = src.slice(start, i + 1 + skip + max);
+  const ind = Math.min(...body.filter((l) => l.trim()).map((l) => l.match(/^ */)![0].length));
+  return body.map((l) => l.slice(ind)).slice(0, max + (i - start) + 1);
+}
+const rustHtml = (lines: string[], hl: RegExp[] = []) =>
+  lines
+    .map((l) => {
+      let h = esc(l);
+      if (/^\s*\/\/\//.test(l) || /^\s*\/\//.test(l)) h = `<span class="c">${h}</span>`;
+      else h = h.replace(/\b(pub fn|require!|require_keys_eq!|let|mut|if|Ok|emit!)\b/g, '<span class="k">$1</span>');
+      return hl.some((r) => r.test(l)) ? `<span class="hl">${h}</span>` : h;
+    })
+    .join("\n");
+const term = (title: string, html: string) => `<div class="term"><div class="bar">● ● ●  ${esc(title)}</div><pre>${html}</pre></div>`;
+
+async function showCode(f: Film, title: string, lines: string[], hl: RegExp[], caps: [string, number][]) {
+  if (!lines.length) return;
+  await f.card(term(title, rustHtml(lines, hl)));
+  await f.fade(0, 0.3);
+  for (const [c, s] of caps) {
+    await f.cap(c);
+    await f.hold(s);
+  }
+  await f.cap("");
+  await f.fade(1, 0.3);
+}
+async function showTerm(f: Film, title: string, lines: string[], caps: [string, number][], reveal = 3) {
+  if (!lines.length) return;
+  const n = lines.length;
+  await f.card(term(title, ""));
+  await f.fade(0, 0.3);
+  await f.cap(caps[0][0]);
+  const per = Math.max(1, Math.round((reveal * FPS) / n));
+  for (let i = 1; i <= n; i++) {
+    const shown = lines.slice(Math.max(0, i - 24), i).join("\n");
+    await f.card(term(title, shown));
+    await f.frame(per);
+  }
+  await f.hold(Math.max(0.5, caps[0][1] - reveal));
+  for (const [c, s] of caps.slice(1)) {
+    await f.cap(c);
+    await f.hold(s);
+  }
+  await f.cap("");
+  await f.fade(1, 0.3);
+}
+
+function gatherFacts(): Facts {
+  const strip = (t: string) => t.replace(/\x1b\[[0-9;]*m/g, "");
+  const idl = JSON.parse(fs.readFileSync("target/idl/owncurve.json", "utf8"));
+  const programId: string = idl.address;
+  // 1 · integration tests on the real Meteora binaries
+  let tests: string[] = [];
+  if (process.env.SKIP_TESTS !== "1") {
+    log("running the integration tests for the terminal scene…");
+    const r = spawnSync("npx", ["tsx", "--test", "--test-reporter=spec", "tests/owncurve.test.ts"], {
+      env: { ...process.env, CLUSTER: "local" }, encoding: "utf8", timeout: 600_000, maxBuffer: 50e6,
+    });
+    const out = strip(`${r.stdout ?? ""}\n${r.stderr ?? ""}`).split("\n").filter((l) => !/bigint/.test(l));
+    const cases = out.filter((l) => /^\s*[✔✖]/.test(l)).map((l) => l.replace(/\s*\(\d+(\.\d+)?ms\)\s*$/, "").trimEnd());
+    const summary = out.filter((l) => /^ℹ (tests|pass|fail|duration_ms)/.test(l));
+    if (cases.length)
+      tests = [`<span class="p">$</span> npm test        <span class="c"># Anchor program + real Meteora DBC and DAMM v2 binaries in LiteSVM</span>`, "",
+        ...cases.map((l) => (/✖/.test(l) ? `<span class="bad">${esc(l)}</span>` : `<span class="ok">${esc(l.slice(0, 2))}</span>${esc(l.slice(2))}`)), "",
+        ...summary.map((l) => `<span class="ok">${esc(l)}</span>`)];
+    log(`tests: ${cases.length} cases`);
+  }
+  // 2 · program on devnet
+  let program: string[] = [];
+  const ps = spawnSync("solana", ["program", "show", programId, "--url", DEVNET_RPC || "https://api.devnet.solana.com"], { encoding: "utf8", timeout: 60_000 });
+  if (ps.status === 0 && ps.stdout)
+    program = [`<span class="p">$</span> solana program show ${programId} --url devnet`, "", ...strip(ps.stdout).trim().split("\n").map(esc)];
+  return { tests, mcp: [], program, programId };
+}
+
+async function gatherMcp(configG: string | null): Promise<string[]> {
+  try {
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { StdioClientTransport } = await import("@modelcontextprotocol/sdk/client/stdio.js");
+    const client = new Client({ name: "owncurve-demo", version: "1.0.0" });
+    await client.connect(
+      new StdioClientTransport({
+        command: "npx",
+        args: ["tsx", "scripts/mcp.ts"],
+        env: { ...(process.env as Record<string, string>), CLUSTER: "devnet", RPC_URL: DEVNET_RPC || "https://api.devnet.solana.com" },
+        stderr: "ignore",
+      }),
+    );
+    const { tools } = await client.listTools();
+    const lines = [
+      `<span class="c"># any MCP client (Claude, Cursor…) → the OwnCurve MCP server, on devnet</span>`,
+      `<span class="p">→</span> tools/list`,
+      `<span class="ok">←</span> ${tools.length} tools: ${esc(tools.map((t: any) => t.name.replace("owncurve_", "")).join(", "))}`,
+      "",
+    ];
+    const target = configG;
+    if (target) {
+      lines.push(`<span class="p">→</span> owncurve_show { config: "${target.slice(0, 10)}…" }`);
+      const res: any = await client.callTool({ name: "owncurve_show", arguments: { config: target } });
+      const txt = res?.content?.[0]?.text ?? "";
+      let obj: any = null;
+      try { obj = JSON.parse(txt); } catch {}
+      const pick = obj
+        ? {
+            name: obj.name, symbol: obj.symbol, state: obj.state,
+            milestones: (obj.milestones ?? []).map((m: any) => `${m.index} · ${m.pct}% · ${m.status}${m.evidenceSha256 ? ` · sha256 ${m.evidenceSha256.slice(0, 16)}…` : ""}`),
+            treasury: obj.backing?.treasury, backingPerMillionTokens: obj.backing?.perMillionTokens,
+            proposal: obj.proposal ?? null,
+            budget: obj.budget ? { perPeriod: obj.budget.perPeriod, availableNow: obj.budget.availableNow, advancedOnNextTranche: obj.budget.advancedOnNextTranche } : null,
+            bedrock: obj.guard?.bedrock ? { premiumPct: obj.guard.bedrock.premiumPct, twapReady: obj.guard.bedrock.twapReady } : null,
+            can: obj.can,
+          }
+        : null;
+      const json = JSON.stringify(pick ?? obj ?? txt, null, 2).split("\n").slice(0, 30);
+      lines.push(...json.map((l) => `<span class="ok">←</span> ${esc(l)}`));
+      lines.push("", `<span class="c"># write tools (buy, object, redeem, tender_offer…) only simulate unless confirm: true</span>`);
+    }
+    await client.close();
+    return lines;
+  } catch (e: any) {
+    log(`! MCP scene skipped: ${String(e?.message ?? e).slice(0, 100)}`);
+    return [];
+  }
+}
+
+async function demo(f: Film, facts: Facts) {
+  const page = f.page;
+  // 0 · Title
+  await f.card(`<div><h1>Own<span>Curve</span></h1><h2>Technical demo · how it works on-chain</h2><p>Anchor program · Meteora DBC + DAMM v2 · Solana devnet</p>${PRESENTER ? `<p>${PRESENTER}</p>` : ""}</div>`);
+  await f.fade(0, 0.01);
+  await f.hold(4);
+  await f.fade(1, 0.35);
+
+  // 1 · Architecture
+  log("architecture");
+  const arch = (on: string[]) => `<div class="arch">
+    <div class="col">
+      <div class="box ${on.includes("team") ? "on" : ""}"><b>Team</b>launches, requests tranches with evidence</div>
+      <div class="box ${on.includes("holders") ? "on" : ""}"><b>Holders</b>buy, object, redeem</div>
+      <div class="box ${on.includes("keeper") ? "on" : ""}"><b>Keeper</b>every 10 min, permissionless</div>
+      <div class="box ${on.includes("agents") ? "on" : ""}"><b>AI agents</b>MCP server · Agent Skill</div>
+    </div>
+    <div class="box core ${on.includes("core") ? "on" : ""}"><b>OwnCurve program</b>Anchor · 19 instructions · <code>${esc(facts.programId.slice(0, 8))}…</code>
+      <div class="sub"><span>Raise PDA<br>milestones · votes</span><span>Treasury PDA<br>holds the raise</span><span>Guard PDA<br>TWAP · ghost team</span><span>Budget PDA<br>monthly advance</span></div>
+    </div>
+    <div class="col">
+      <div class="box ${on.includes("dbc") ? "on" : ""}"><b>Meteora DBC</b>fee_claimer = treasury PDA<br><code>withdraw_migration_fee</code><br><code>claim_trading_fee</code> · <code>partner_withdraw_surplus</code></div>
+      <div class="box ${on.includes("damm") ? "on" : ""}"><b>Meteora DAMM v2</b>LP locked to the treasury<br><code>claim_position_fee</code> · <code>swap</code><br>reads <code>sqrt_price</code> for the TWAP</div>
+    </div></div>`;
+  const steps: [string[], string, number][] = [
+    [["core"], "One Anchor program holds each raise. Its treasury PDA is the DBC config's fee_claimer and leftover_receiver.", 5.2],
+    [["core", "dbc"], "At graduation it pulls the migration fee, trading fees and surplus by CPI into DBC, signed by the PDA.", 5.2],
+    [["core", "damm"], "After migration to DAMM v2 the LP is locked to the treasury. LP fees and floor buybacks are CPIs into DAMM v2.", 5.6],
+    [["core", "team", "holders"], "Teams are paid per milestone; holders can object with quorum and redeem the treasury.", 4.6],
+    [["core", "keeper", "agents"], "Every protection is permissionless: a public keeper and AI agents can drive it.", 4.4],
+  ];
+  await f.card(arch([]));
+  await f.fade(0, 0.3);
+  for (const [on, c, s] of steps) {
+    await f.card(arch(on));
+    await f.cap(c);
+    await f.hold(s);
+  }
+  await f.cap("");
+  await f.fade(1, 0.3);
+
+  // 2 · bind_pool code
+  log("code: bind_pool");
+  await showCode(f, "programs/owncurve/src/lib.rs · bind_pool", rustFn("bind_pool", 34).filter((l) => l.trim() !== ""), [/fee_claimer|leftover_receiver|creator_migration_fee|creator_liquidity|token_update_authority|pool.creator/], [
+    ["Before the first buy, bind_pool checks the Meteora DBC config on-chain.", 3.6],
+    ["The fees must go to the treasury PDA, 0% to the creator, no unlockable LP and no mint authority — or the raise never opens.", 5.2],
+  ]);
+
+  // 3 · Launch form
+  log("launch form");
+  await route(page, "#/new");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await visible(page.locator("h1", { hasText: "Launch a raise" }), 20_000);
+  await page.waitForTimeout(800);
+  await f.card(null);
+  await f.fade(0, 0.3);
+  await f.cap("Launching a raise: currency (SOL, a stablecoin or a tokenized stock), milestones, objection window and quorum…");
+  const legends = page.locator("form legend");
+  await f.glide(VW * 0.4, VH * 0.4, 0.8);
+  await f.hold(2.4);
+  const nLeg = await legends.count();
+  for (let i = 1; i < nLeg; i++) {
+    if (i === 2) await f.cap("…and the holder protections: price floor reserve, ghost-team timeout, buyout premium and a monthly budget.");
+    await f.show(legends.nth(i), 0.18, 1.3);
+    await f.point(legends.nth(i), 0.6, 0.1);
+    await f.hold(2.0);
+  }
+  await f.cap("");
+  await f.fade(1, 0.3);
+
+  // 4 · Evidence-backed tranches
+  log("code: propose_release");
+  await f.card(null);
+  await showCode(f, "programs/owncurve/src/lib.rs · propose_release", rustFn("propose_release", 30).filter((l) => l.trim() !== ""), [/evidence_hash|evidence_uri|proposal_ends_at/], [
+    ["Each tranche request commits a public evidence link and its SHA-256 on-chain, and opens an objection window.", 5.0],
+    ["Holders lock tokens to object. With quorum the payment stops, the raise liquidates and every holder redeems pro rata.", 5.2],
+  ]);
+
+  // 5 · Bedrock clause: page + code
+  log("raise: Bedrock clause");
+  const okE = await openFeatured(f, "Bedrock clause", false);
+  await settle(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await f.card(null);
+  await f.fade(0, 0.3);
+  if (okE) {
+    const row = page.locator(".guard-row", { hasText: "Bedrock clause" });
+    await f.cap("Raise E on devnet: taken over through the on-chain Bedrock clause.");
+    if (await row.count()) {
+      await f.show(row, 0.42, 1.1);
+      await f.point(row.locator("strong").first(), 0.7, 0.2);
+    }
+    await f.hold(3.4);
+    await f.cap("");
+    await f.fade(1, 0.3);
+  }
+  await showCode(f, "programs/owncurve/src/lib.rs · observe", rustFn("observe", 20).filter((l) => l.trim() !== ""), [/damm_price_q64|observe_interval_secs|observations\[head\]/], [
+    ["observe() reads sqrt_price straight from the DAMM v2 pool account — owner and mints checked — into a 16-slot ring buffer.", 5.6],
+  ]);
+  await showCode(f, "programs/owncurve/src/lib.rs · tender_offer", rustFn("tender_offer", 24).filter((l) => l.trim() !== ""), [/twap_q64|buyout_price|required|BuyoutAboveMax/], [
+    ["tender_offer(): the acquirer deposits until every circulating token redeems at TWAP × (1 + premium).", 5.2],
+    ["Then holders are paid out pro rata and the acquirer becomes the team. There is no other way to take over.", 4.4],
+  ]);
+
+  // 6 · Floor defended
+  log("raise: floor defended");
+  const okA = await openFeatured(f, "floor defended", false);
+  await settle(page);
+  await f.card(null);
+  const fp = page.locator(".floor-panel");
+  if (okA && (await fp.count())) {
+    const sy = await page.evaluate(() => window.scrollY);
+    const box = await fp.boundingBox();
+    if (box) await page.evaluate((v) => window.scrollTo(0, v), sy + box.y - VH * 0.3);
+    await f.fade(0, 0.3);
+    await f.cap("defend_floor: when DAMM v2 trades below the treasury's backing, anyone makes the treasury buy by CPI swap and burn.");
+    await f.point(fp.locator(".gauge"), 0.8);
+    await f.hold(4.4);
+    await f.cap("");
+    await f.fade(1, 0.3);
+  }
+
+  // 7 · Agents (MCP)
+  log("MCP");
+  await showTerm(f, "MCP · owncurve server (stdio) · devnet", facts.mcp, [
+    ["AI agents: the OwnCurve MCP server exposes every operation as a tool, with the same rules as the program.", 6.0],
+    ["An agent can read a raise, audit the tranche evidence and simulate an objection before asking its user to confirm.", 4.6],
+  ], 4);
+
+  // 8 · Tests
+  log("tests");
+  await showTerm(f, "npm test", facts.tests, [
+    [`${facts.tests.filter((l) => l.includes("✔")).length} integration tests run the real Meteora DBC and DAMM v2 programs inside LiteSVM.`, 6.4],
+    ["Plus CLI, MCP, keeper, scanner and mainnet-study tests, and a browser end-to-end test of the whole flow.", 3.8],
+  ], 4.5);
+
+  // 9 · Deployed program
+  log("program on devnet");
+  await showTerm(f, "solana program show", facts.program, [
+    ["Live on devnet. security.txt and the IDL are on-chain, and scripts/verify.sh rebuilds and matches the deployed binary.", 5.2],
+  ], 1.5);
+
+  // 10 · Keeper
+  log("keeper");
+  await route(page, "#/keeper");
+  await visible(page.locator(".keeper-log li"), 30_000);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await f.card(null);
+  await f.fade(0, 0.3);
+  await f.cap("The keeper's real transactions on devnet, from GitHub Actions every 10 minutes: settle, observe, defend_floor…");
+  const first = page.locator(".keeper-log li").first();
+  if (await first.count()) await f.point(first, 0.9, 0.25);
+  await f.hold(1.6);
+  await f.glide(f.cx, f.cy + 180, 1.6);
+  await f.hold(1.4);
+
+  // 11 · Close
+  await f.cap("");
+  await f.fade(1, 0.4);
+  await f.card(`<div><p class="big">Ownership coins, enforced by code on Meteora.</p>
+    <p>Open source · MIT · try it on devnet with a test wallet</p>
+    <span class="tag">zyxel89.github.io/owncurve · github.com/Zyxel89/owncurve</span></div>`);
+  await f.fade(0, 0.4);
+  await f.hold(5);
+  await f.fade(1, 0.5);
+}
+
 async function launch(): Promise<Browser> {
   const args = ["--hide-scrollbars", "--force-color-profile=srgb", "--disable-gpu"];
   try {
@@ -509,11 +843,75 @@ async function launch(): Promise<Browser> {
   }
 }
 
+/** Forward the page's calls to public Solana RPCs to the private ones, adding CORS headers. */
+async function forwardRpc(ctx: BrowserContext, hosts: string[], target: string) {
+  if (!target) return;
+  await ctx.route(
+    (u) => hosts.includes(u.hostname),
+    async (r) => {
+      const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "POST, GET, OPTIONS" };
+      if (r.request().method() === "OPTIONS") return r.fulfill({ status: 204, headers: cors });
+      for (let i = 0; ; i++) {
+        try {
+          const res = await r.fetch({ url: target, headers: { "content-type": "application/json" } });
+          if (res.status() === 429 && i < 4) {
+            await new Promise((x) => setTimeout(x, 800 * (i + 1)));
+            continue;
+          }
+          return r.fulfill({ status: res.status(), body: await res.body(), headers: { ...cors, "content-type": "application/json" } });
+        } catch (e) {
+          if (i >= 3) return r.abort().catch(() => {});
+          await new Promise((x) => setTimeout(x, 800));
+        }
+      }
+    },
+  );
+}
+
+/** A real mainnet launch that fails OwnCurve's rules, checked before filming (from the mainnet study). */
+async function pickMainnet() {
+  const cands: string[] = [];
+  if (MAINNET_ADDR_ENV) cands.push(MAINNET_ADDR_ENV);
+  try {
+    const study = JSON.parse(fs.readFileSync("docs/mainnet-study.json", "utf8"));
+    for (const c of study.topConfigs ?? [])
+      if (!c.feeClaimerIsProgram && c.migrationFeePct > 0 || c.unlockedLpPct > 0 || c.mintAuthorityKept || c.creatorShareOfFeePct > 0) cands.push(c.address);
+  } catch {}
+  const conn = new Connection(MAINNET_RPC || "https://solana-rpc.publicnode.com", "confirmed");
+  for (const a of cands.slice(0, 12)) {
+    try {
+      const r = await scanLaunch(conn, a);
+      log(`mainnet ${a.slice(0, 8)}… grade ${r.grade}`);
+      if (!["A+", "A", "B"].includes(r.grade)) return a;
+    } catch (e: any) {
+      log(`mainnet ${a.slice(0, 8)}… ${String(e?.message ?? e).slice(0, 80)}`);
+    }
+  }
+  log("! no mainnet launch with a bad grade found; using the default address");
+  return MAINNET_ADDR;
+}
+
 async function main() {
   fs.mkdirSync(OUT.replace(/\/[^/]*$/, ""), { recursive: true });
   const browser = await launch();
   const ctx = await browser.newContext({ viewport: { width: VW, height: VH }, deviceScaleFactor: 1.2, colorScheme: "light" });
   await ctx.addInitScript(OVERLAY);
+  await forwardRpc(ctx, ["api.devnet.solana.com"], DEVNET_RPC);
+  await forwardRpc(ctx, ["solana-rpc.publicnode.com", "solana.drpc.org", "api.mainnet-beta.solana.com"], MAINNET_RPC);
+  log(`devnet RPC: ${DEVNET_RPC ? "private (forwarded)" : "public"} · mainnet RPC: ${MAINNET_RPC ? "private (forwarded)" : "public"}`);
+  let facts: Facts | null = null;
+  if (MODE === "pitch") {
+    MAINNET_ADDR = await pickMainnet();
+    log(`rug check uses ${MAINNET_ADDR}`);
+  } else {
+    facts = gatherFacts();
+    let featuredG: string | null = null;
+    try {
+      const fj = JSON.parse(fs.readFileSync("app/src/featured.json", "utf8"));
+      featuredG = (fj.featured ?? []).find((x: any) => /budget/i.test(x.label))?.config ?? fj.featured?.[0]?.config ?? null;
+    } catch {}
+    facts.mcp = await gatherMcp(featuredG);
+  }
   const page = await ctx.newPage();
   console.log(`  site ${SITE}`);
   await page.goto(SITE, { waitUntil: "domcontentloaded", timeout: 60_000 });
@@ -522,7 +920,8 @@ async function main() {
   await settle(page);
   const f = new Film(page);
   const t0 = Date.now();
-  await pitch(f);
+  if (MODE === "pitch") await pitch(f);
+  else await demo(f, facts!);
   await f.finish();
   await browser.close();
   console.log(`  ✔ ${OUT} · ${f.sec().toFixed(1)} s of video · rendered in ${((Date.now() - t0) / 60000).toFixed(1)} min`);
