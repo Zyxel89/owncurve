@@ -501,7 +501,8 @@ export class OwnCurve {
       twapReady,
       /** precios en unidades atómicas de moneda por unidad atómica de token */
       twap: Number(twapQ64) / 2 ** 64,
-      buyoutPrice: Number(buyoutQ64) / 2 ** 64,
+      // tras una oferta pública, el precio que quedó fijado en cadena (el TWAP ya puede haber caducado)
+      buyoutPrice: Number(new PublicKey(g.acquirer).equals(PublicKey.default) ? buyoutQ64 : BigInt(g.buyoutPriceQ64.toString())) / 2 ** 64,
       buyoutDeposit: new BN(deposit.toString()),
       acquirer: new PublicKey(g.acquirer),
       acquired: !new PublicKey(g.acquirer).equals(PublicKey.default),
