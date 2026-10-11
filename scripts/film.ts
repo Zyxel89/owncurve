@@ -13,7 +13,7 @@ import { spawn, spawnSync } from "child_process";
 import fs from "fs";
 
 const SITE = (process.env.SITE ?? "https://zyxel89.github.io/owncurve/").replace(/#.*$/, "");
-const MODE = (process.env.MODE ?? "pitch") as "pitch" | "demo";
+const MODE = (process.env.MODE ?? "pitch") as "pitch" | "demo" | "intro";
 const OUT = process.env.OUT ?? `${process.env.HOME}/videos/owncurve-${MODE}.mp4`;
 const FPS = Number(process.env.FPS ?? 30);
 const PRESENTER = process.env.PRESENTER ?? "";
@@ -67,6 +67,10 @@ const OVERLAY = `
     #oc-card .core { padding: 22px; } #oc-card .core .sub { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
     #oc-card .core .sub span { border: 1px dashed #3f6b5c; border-radius: 8px; padding: 8px 10px; font-size: 16px; }
     #oc-card .arrow { color: #7fd6b0; font-size: 34px; text-align: center; }
+    #oc-card .lst { text-align: left; max-width: 1120px; margin: 0 auto; }
+    #oc-card .lst p { font-size: 30px; line-height: 1.45; color: #cfe3da; margin: 0 0 18px; padding-left: 34px; position: relative; opacity: .28; }
+    #oc-card .lst p.on { opacity: 1; } #oc-card .lst p::before { content: "→"; position: absolute; left: 0; color: #7fd6b0; }
+    #oc-card .eyebrow { font-size: 22px; letter-spacing: 3px; text-transform: uppercase; color: #7fd6b0; margin-bottom: 18px; }
     #oc-card .tag { display: inline-block; margin-top: 26px; padding: 8px 18px; border: 1px solid #3f6b5c; border-radius: 999px; font-size: 22px; color: #9fd8bf; }
   \`;
   const ensure = () => {
@@ -831,6 +835,112 @@ async function demo(f: Film, facts: Facts) {
   await f.fade(1, 0.5);
 }
 
+
+// ───────────────────────────── the intro pitch (≤ 2 min: who, what, why us) ─────────────────────────────
+async function intro(f: Film) {
+  const page = f.page;
+  const NAME = process.env.INTRO_NAME ?? "Oscar Gonzalez Santiesteban";
+  const FROM = process.env.INTRO_FROM ?? "Bolivia";
+  const list = (eyebrow: string, title: string, items: string[], on: number) =>
+    `<div><div class="eyebrow">${esc(eyebrow)}</div><p class="big">${esc(title)}</p><div class="lst">${items.map((t, i) => `<p class="${i <= on ? "on" : ""}">${esc(t)}</p>`).join("")}</div></div>`;
+
+  // 0 · Who
+  await f.card(`<div><div class="eyebrow">Colosseum · Meteora DBC track</div><h1 style="font-size:76px">Hi, I'm ${esc(NAME.split(" ")[0])}.</h1><h2>${esc(NAME)} · Rust &amp; Web3 engineer · ${esc(FROM)}</h2><p>I built <b style="color:#7fd6b0">OwnCurve</b> for this hackathon, on my own.</p></div>`);
+  await f.fade(0, 0.01);
+  await f.hold(5.5);
+  await f.fade(1, 0.35);
+
+  // 1 · What
+  await f.card(`<div><div class="eyebrow">What I'm building</div><h1>Own<span>Curve</span></h1><h2>Ownership coins on Meteora's Dynamic Bonding Curve</h2><p>The money a launch raises sits in an on-chain treasury. The team is paid one milestone at a time.<br>Holders keep rights that a program enforces, not a promise.</p></div>`);
+  await f.fade(0, 0.35);
+  await f.hold(7);
+  await f.fade(1, 0.35);
+  await f.card(null);
+
+  // 2 · The problem, on the live app
+  await route(page, "#/");
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await settle(page);
+  const stats = page.locator("section.stats");
+  if (await stats.count()) {
+    const sy = await page.evaluate(() => window.scrollY);
+    const box = await stats.boundingBox();
+    if (box) await page.evaluate((v) => window.scrollTo(0, v), sy + box.y - VH * 0.3);
+  }
+  await f.fade(0, 0.35);
+  await f.cap("The problem: I read all 1.7 million Meteora DBC launches on mainnet. In 63.6% of them, someone can pull the liquidity after graduation.");
+  if (await stats.count()) await f.point(stats.locator(":scope > div").nth(0).locator("strong"), 0.9, 0.12);
+  await f.hold(4.6);
+  await f.cap("Only 1 in 10 meets four basic holder guarantees. Holders put money in and get no say over it.");
+  if (await stats.count()) await f.point(stats.locator(":scope > div").nth(1).locator("strong"), 0.8, 0.12);
+  await f.hold(4.2);
+  await f.cap("");
+  await f.fade(1, 0.3);
+
+  // 3 · The product, live on devnet
+  const okA = await openFeatured(f, "floor defended", false);
+  await settle(page);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await f.fade(0, 0.3);
+  if (okA) {
+    const vault = page.locator("figure.vault");
+    await f.cap("OwnCurve, live on devnet: this raise paid its team in three evidence-backed milestones and kept a price floor.");
+    await f.point(vault.locator(".vault-track"), 0.9, 0.35);
+    await f.hold(4.4);
+    await f.cap("");
+    await f.fade(1, 0.3);
+  }
+  const okE = await openFeatured(f, "Bedrock clause", false);
+  await settle(page);
+  if (okE) {
+    const row = page.locator(".guard-row", { hasText: "Bedrock clause" });
+    if (await row.count()) {
+      const sy = await page.evaluate(() => window.scrollY);
+      const box = await row.boundingBox();
+      if (box) await page.evaluate((v) => window.scrollTo(0, v), sy + box.y - VH * 0.35);
+    }
+    await f.fade(0, 0.3);
+    await f.cap("Holders can stop a payment and take their share back, and nobody can take the project over without paying them TWAP + 30%.");
+    if (await row.count()) await f.point(row.locator("strong").first(), 0.9, 0.25);
+    await f.hold(4.8);
+    await f.cap("");
+    await f.fade(1, 0.3);
+  }
+  await f.card(null);
+
+  // 4 · Why me
+  const why = [
+    "I write Rust smart contracts and protocol code for a living.",
+    "I built all of OwnCurve here: an Anchor program with CPIs into Meteora DBC and DAMM v2, the web app, a keeper, an MCP server and 31 tests on the real Meteora binaries.",
+    "I measured the problem first: every rule in the program answers a failure I found in real mainnet launches.",
+  ];
+  for (let i = 0; i < why.length; i++) {
+    await f.card(list("Why me", "Why I'm the one to build this", why, i));
+    if (i === 0) await f.fade(0, 0.35);
+    await f.hold(i === 1 ? 6.2 : 4.4);
+  }
+  await f.fade(1, 0.35);
+
+  // 5 · Why now / next
+  const now = [
+    "Meteora launched Bedrock to protect holders of ownership coins with legal agreements. OwnCurve enforces the same promises in code.",
+    "DBC is the launch primitive most Solana launchpads already use, so any of them can turn this on for their creators.",
+    "Next: an audit, mainnet, and the first launchpad integration.",
+  ];
+  for (let i = 0; i < now.length; i++) {
+    await f.card(list("Why now", "Ownership coins, enforced by code", now, i));
+    if (i === 0) await f.fade(0, 0.35);
+    await f.hold(i === 2 ? 3.6 : 5.0);
+  }
+  await f.fade(1, 0.35);
+
+  // 6 · Close
+  await f.card(`<div><h1>Own<span>Curve</span></h1><h2>Thanks for watching.</h2><p>Live demo, code and the full technical walkthrough:</p><span class="tag">zyxel89.github.io/owncurve · github.com/Zyxel89/owncurve</span></div>`);
+  await f.fade(0, 0.4);
+  await f.hold(4.5);
+  await f.fade(1, 0.5);
+}
+
 async function launch(): Promise<Browser> {
   const args = ["--hide-scrollbars", "--force-color-profile=srgb", "--disable-gpu"];
   try {
@@ -903,7 +1013,7 @@ async function main() {
   if (MODE === "pitch") {
     MAINNET_ADDR = await pickMainnet();
     log(`rug check uses ${MAINNET_ADDR}`);
-  } else {
+  } else if (MODE === "demo") {
     facts = gatherFacts();
     let featuredG: string | null = null;
     try {
@@ -921,6 +1031,7 @@ async function main() {
   const f = new Film(page);
   const t0 = Date.now();
   if (MODE === "pitch") await pitch(f);
+  else if (MODE === "intro") await intro(f);
   else await demo(f, facts!);
   await f.finish();
   await browser.close();
