@@ -41,7 +41,7 @@ const OVERLAY = `
       box-shadow: 0 6px 28px rgba(0,0,0,.28); opacity: 0; }
     #oc-cap.on { opacity: 1; }
     #oc-fade { position: fixed; inset: 0; background: #0d1512; z-index: 2147483647; pointer-events: none; opacity: 0; }
-    #oc-card { position: fixed; inset: 0; z-index: 2147483644; display: none; place-items: center; text-align: center;
+    #oc-card { position: fixed; inset: 0; z-index: 2147483644; pointer-events: none; display: none; place-items: center; text-align: center;
       background: radial-gradient(1200px 600px at 50% 30%, #1d3a31 0%, #0d1512 70%); color: #eef4f1;
       font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
     #oc-card.on { display: grid; }
