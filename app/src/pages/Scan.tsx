@@ -7,8 +7,12 @@ import { PROGRAM_ID } from "../lib/data";
 import { RPC_URL } from "../lib/browserNet";
 import { ScanResult, scanLaunch } from "../../../scripts/lib/scan";
 
+// Public mainnet RPCs that answer browser requests (api.mainnet-beta.solana.com often returns 403 to web
+// pages). The scanner tries them in order until one answers.
+export const MAINNET_RPCS = ["https://solana-rpc.publicnode.com", "https://solana.drpc.org", "https://api.mainnet-beta.solana.com"];
+
 const NETS = {
-  mainnet: { label: "Solana mainnet", rpc: "https://api.mainnet-beta.solana.com", explorer: (a: string) => `https://solscan.io/account/${a}` },
+  mainnet: { label: "Solana mainnet", rpc: MAINNET_RPCS[0], explorer: (a: string) => `https://solscan.io/account/${a}` },
   devnet: { label: "Solana devnet", rpc: RPC_URL, explorer: (a: string) => `https://explorer.solana.com/address/${a}?cluster=devnet` },
 } as const;
 type NetName = keyof typeof NETS;
@@ -38,7 +42,21 @@ export function Scan() {
     setError(null);
     setRes(null);
     try {
-      const r = await scanLaunch(new Connection(url, "confirmed"), a, PROGRAM_ID);
+      const urls = n === "mainnet" && MAINNET_RPCS.includes(url) ? [url, ...MAINNET_RPCS.filter((u) => u !== url)] : [url];
+      let r: ScanResult | null = null;
+      let last: unknown;
+      for (const u of urls) {
+        try {
+          r = await scanLaunch(new Connection(u, "confirmed"), a, PROGRAM_ID);
+          if (u !== url) setRpc(u);
+          break;
+        } catch (err: any) {
+          last = err;
+          // only move on when the RPC itself refused or failed, not when the address is wrong
+          if (!/403|401|429|forbidden|fetch|network|CORS|getProgramAccounts|looking a token up|failed to get/i.test(String(err?.message ?? err))) throw err;
+        }
+      }
+      if (!r) throw last;
       setRes(r);
       history.replaceState(null, "", `#/scan?net=${n}&a=${a.trim()}`);
     } catch (err: any) {
